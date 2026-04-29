@@ -1,36 +1,29 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
-
-type FarmerProfile = {
-  phone: string;
-  walletAddress: string;
-  tokenizedTrees: number;
-  totalCoffeeSalesUsd: number;
-  totalCoffeeSalesKes: number;
-  balanceUsd: number;
-  balanceKes: number;
-  marketplacePaymentsUsd: number;
-  marketplacePaymentsKes: number;
-};
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import type { ActivityItem, LiveFarmerProfile } from "@/lib/elementpay";
 
 const usdToKesRate = 128.2;
-
-const makeWalletAddress = (phone: string) => {
-  const digits = phone.replace(/\D/g, "");
-  const seeded = digits.padEnd(24, "0").slice(0, 24);
-  return `0xmocha${seeded}`.slice(0, 28);
-};
 
 const cardClass =
   "rounded-2xl border border-[#e8dfd6] bg-white p-4 shadow-[0_10px_35px_rgba(79,62,45,0.07)]";
 
+const asCurrencyLine = (amount?: number, currency?: string) => {
+  if (amount === undefined || !currency) return "";
+  if (currency === "USD") return `$${amount.toLocaleString()}`;
+  return `${currency} ${amount.toLocaleString()}`;
+};
+
 export default function Home() {
   const [phone, setPhone] = useState("+254");
-  const [profile, setProfile] = useState<FarmerProfile | null>(null);
+  const [profile, setProfile] = useState<LiveFarmerProfile | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isSubmittingPayout, setIsSubmittingPayout] = useState(false);
+  const [error, setError] = useState("");
   const [showPayoutModal, setShowPayoutModal] = useState(false);
   const [payoutCurrency, setPayoutCurrency] = useState<"KES" | "USD">("KES");
   const [payoutAmount, setPayoutAmount] = useState("0");
+  const [recentActivities, setRecentActivities] = useState<ActivityItem[]>([]);
 
   const offRampUrl = useMemo(() => {
     if (!profile) return "https://dapp.elementpay.net/";
@@ -43,20 +36,79 @@ export default function Home() {
     return `https://dapp.elementpay.net/?${q.toString()}`;
   }, [profile, payoutAmount, payoutCurrency]);
 
-  const onLogin = (event: FormEvent<HTMLFormElement>) => {
+  const loadProfile = async (phoneNumber: string) => {
+    setIsLoading(true);
+    setError("");
+    try {
+      const response = await fetch(
+        `/api/farmer-profile?phone=${encodeURIComponent(phoneNumber)}`
+      );
+      const data = (await response.json()) as LiveFarmerProfile & { error?: string };
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to load profile");
+      }
+      setProfile(data);
+      setRecentActivities(data.activities ?? []);
+    } catch (loadError) {
+      setError(
+        loadError instanceof Error
+          ? loadError.message
+          : "Could not connect to ElementPay live services."
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const onLogin = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const walletAddress = makeWalletAddress(phone);
-    setProfile({
-      phone,
-      walletAddress,
-      tokenizedTrees: 1240,
-      totalCoffeeSalesUsd: 41250,
-      totalCoffeeSalesKes: 5288250,
-      balanceUsd: 7860,
-      balanceKes: 1007652,
-      marketplacePaymentsUsd: 18350,
-      marketplacePaymentsKes: 2352470,
-    });
+    await loadProfile(phone);
+  };
+
+  useEffect(() => {
+    if (!profile?.phone) return;
+    const interval = setInterval(() => {
+      void loadProfile(profile.phone);
+    }, 20000);
+    return () => clearInterval(interval);
+  }, [profile?.phone]);
+
+  const onLaunchPayout = async () => {
+    if (!profile) return;
+    const amount = Number(payoutAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setError("Enter a valid payout amount.");
+      return;
+    }
+
+    setIsSubmittingPayout(true);
+    setError("");
+    try {
+      const response = await fetch("/api/offramp-session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          phone: profile.phone,
+          walletAddress: profile.walletAddress,
+          amount,
+          currency: payoutCurrency,
+        }),
+      });
+      const data = (await response.json()) as { launchUrl?: string; error?: string };
+      if (!response.ok || !data.launchUrl) {
+        throw new Error(data.error || "Unable to initialize off-ramp session.");
+      }
+      window.open(data.launchUrl, "_blank", "noopener,noreferrer");
+    } catch (sessionError) {
+      setError(
+        sessionError instanceof Error
+          ? sessionError.message
+          : "Off-ramp connection failed."
+      );
+      window.open(offRampUrl, "_blank", "noopener,noreferrer");
+    } finally {
+      setIsSubmittingPayout(false);
+    }
   };
 
   return (
@@ -70,7 +122,7 @@ export default function Home() {
             <h1 className="text-lg font-semibold sm:text-xl">Farmer Portal</h1>
           </div>
           <button className="rounded-full bg-[#6f4e37] px-4 py-2 text-sm font-medium text-white">
-            Marketplace Live
+            {profile?.isLive ? "Marketplace Live" : "Awaiting Live Connection"}
           </button>
         </header>
 
@@ -103,11 +155,17 @@ export default function Home() {
                 />
                 <button
                   type="submit"
+                  disabled={isLoading}
                   className="w-full rounded-xl bg-[#6f4e37] px-4 py-3 font-medium text-white"
                 >
-                  Continue to dashboard
+                  {isLoading ? "Connecting..." : "Continue to dashboard"}
                 </button>
               </form>
+              {error ? (
+                <p className="mt-3 rounded-xl bg-[#fff1e6] px-3 py-2 text-xs text-[#8a4f1e]">
+                  {error}
+                </p>
+              ) : null}
               <p className="mt-3 text-xs text-[#7a6652]">
                 Reown AppKit evaluation: enabled for future social wallet and
                 passkey fallback.
@@ -180,6 +238,9 @@ export default function Home() {
                   Farmer profile
                 </p>
                 <h2 className="mt-2 text-lg font-semibold">Wallet onboarding</h2>
+                <p className="mt-1 text-xs text-[#7a6652]">
+                  Last synced: {new Date(profile.lastSyncedAt).toLocaleString()}
+                </p>
                 <div className="mt-4 rounded-xl bg-[#f8f3ee] p-4 text-sm">
                   <p>
                     <span className="font-medium">Phone:</span> {profile.phone}
@@ -203,15 +264,22 @@ export default function Home() {
                 </p>
                 <h2 className="mt-2 text-lg font-semibold">Recent activity</h2>
                 <div className="mt-4 space-y-3 text-sm">
-                  <div className="rounded-xl bg-[#faf6f1] p-3">
-                    Payment settled: Cherry Lot #A12 - $1,430
-                  </div>
-                  <div className="rounded-xl bg-[#faf6f1] p-3">
-                    Payout ready: KES 56,000 to M-Pesa
-                  </div>
-                  <div className="rounded-xl bg-[#faf6f1] p-3">
-                    Tokenized trees synced: +48 this week
-                  </div>
+                  {recentActivities.length > 0 ? (
+                    recentActivities.map((activity) => (
+                      <div key={activity.id} className="rounded-xl bg-[#faf6f1] p-3">
+                        <p>{activity.label}</p>
+                        <p className="mt-1 text-xs text-[#7a6652]">
+                          {[asCurrencyLine(activity.amount, activity.currency), activity.status]
+                            .filter(Boolean)
+                            .join(" - ")}
+                        </p>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="rounded-xl bg-[#faf6f1] p-3 text-[#7a6652]">
+                      No live transactions yet for this farmer profile.
+                    </div>
+                  )}
                 </div>
               </div>
             </section>
@@ -271,15 +339,20 @@ export default function Home() {
             <div className="mt-3 rounded-xl bg-[#faf6f1] p-3 text-xs text-[#6e5842]">
               Rate: 1 USD = {usdToKesRate} KES
             </div>
-
-            <a
-              href={offRampUrl}
-              target="_blank"
-              rel="noreferrer"
+            {error ? (
+              <p className="mt-3 rounded-xl bg-[#fff1e6] px-3 py-2 text-xs text-[#8a4f1e]">
+                {error}
+              </p>
+            ) : null}
+            <button
+              onClick={onLaunchPayout}
+              disabled={isSubmittingPayout}
               className="mt-4 block w-full rounded-xl bg-[#6f4e37] px-4 py-3 text-center font-medium text-white"
             >
-              Continue to ElementPay
-            </a>
+              {isSubmittingPayout
+                ? "Starting secure session..."
+                : "Continue to ElementPay"}
+            </button>
           </div>
         </div>
       ) : null}
