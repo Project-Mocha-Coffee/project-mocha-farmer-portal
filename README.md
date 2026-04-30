@@ -13,6 +13,7 @@ cp .env.example .env.local
 Required:
 
 - `ELEMENTPAY_API_BASE_URL`: ElementPay API base URL
+  - Example: `https://api.elementpay.net/api/v1`
 
 Optional (defaults provided):
 
@@ -21,6 +22,8 @@ Optional (defaults provided):
 - `ELEMENTPAY_METRICS_PATH`
 - `ELEMENTPAY_TRANSACTIONS_PATH`
 - `ELEMENTPAY_OFFRAMP_PATH`
+
+All path variables also accept a full URL if your integration uses different hosts per endpoint.
 
 The frontend calls internal API routes:
 

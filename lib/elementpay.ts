@@ -40,7 +40,7 @@ const PHONE_WALLET_PATH =
 const METRICS_PATH = process.env.ELEMENTPAY_METRICS_PATH ?? "/v1/farmer/metrics";
 const TRANSACTIONS_PATH =
   process.env.ELEMENTPAY_TRANSACTIONS_PATH ?? "/v1/farmer/transactions";
-const OFFRAMP_PATH = process.env.ELEMENTPAY_OFFRAMP_PATH ?? "/v1/offramp/session";
+const OFFRAMP_PATH = process.env.ELEMENTPAY_OFFRAMP_PATH ?? "/orders/create";
 
 const ensureBaseUrl = () => {
   if (!BASE_URL) {
@@ -53,8 +53,30 @@ const ensureBaseUrl = () => {
 
 const headers = () => ({
   "Content-Type": "application/json",
-  ...(API_KEY ? { Authorization: `Bearer ${API_KEY}` } : {}),
+  ...(API_KEY
+    ? {
+        "X-API-Key": API_KEY,
+        Authorization: `Bearer ${API_KEY}`,
+      }
+    : {}),
 });
+
+const isAbsoluteUrl = (value: string) => /^https?:\/\//i.test(value);
+
+const resolveUrl = (pathOrUrl: string) => {
+  const baseUrl = ensureBaseUrl();
+  if (isAbsoluteUrl(pathOrUrl)) return pathOrUrl;
+  const normalizedPath = pathOrUrl.startsWith("/") ? pathOrUrl : `/${pathOrUrl}`;
+  return `${baseUrl}${normalizedPath}`;
+};
+
+const withQuery = (pathOrUrl: string, query: Record<string, string>) => {
+  const url = new URL(resolveUrl(pathOrUrl));
+  Object.entries(query).forEach(([key, value]) => {
+    url.searchParams.set(key, value);
+  });
+  return url.toString();
+};
 
 const toNumber = (value: unknown, fallback: number | undefined = 0) => {
   if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -119,10 +141,8 @@ const normalizeActivities = (payload: unknown): ActivityItem[] => {
 export const fetchLiveFarmerProfile = async (
   phone: string
 ): Promise<LiveFarmerProfile> => {
-  const baseUrl = ensureBaseUrl();
-
   const walletResponse = await fetchJson<JsonRecord>(
-    `${baseUrl}${PHONE_WALLET_PATH}?phone=${encodeURIComponent(phone)}`
+    withQuery(PHONE_WALLET_PATH, { phone })
   );
 
   const walletAddress = String(
@@ -136,14 +156,10 @@ export const fetchLiveFarmerProfile = async (
 
   const [metricsResponse, transactionsResponse] = await Promise.all([
     fetchJson<JsonRecord>(
-      `${baseUrl}${METRICS_PATH}?phone=${encodeURIComponent(
-        phone
-      )}&wallet=${encodeURIComponent(walletAddress)}`
+      withQuery(METRICS_PATH, { phone, wallet: walletAddress })
     ),
     fetchJson<JsonRecord>(
-      `${baseUrl}${TRANSACTIONS_PATH}?phone=${encodeURIComponent(
-        phone
-      )}&wallet=${encodeURIComponent(walletAddress)}`
+      withQuery(TRANSACTIONS_PATH, { phone, wallet: walletAddress })
     ),
   ]);
 
@@ -190,11 +206,28 @@ export const fetchLiveFarmerProfile = async (
 export const createOffRampSession = async (
   payload: OffRampSessionInput
 ): Promise<{ launchUrl: string }> => {
-  const baseUrl = ensureBaseUrl();
+  const endpoint = resolveUrl(OFFRAMP_PATH);
 
-  const response = await fetchJson<JsonRecord>(`${baseUrl}${OFFRAMP_PATH}`, {
+  const maybeOrderPayload =
+    endpoint.includes("/orders/create") || endpoint.includes("/orders");
+
+  const requestPayload = maybeOrderPayload
+    ? {
+        user_address: payload.walletAddress,
+        order_type: 1,
+        fiat_payload: {
+          amount_fiat: payload.amount,
+          cashout_type: "PHONE",
+          phone_number: payload.phone,
+          currency: payload.currency,
+          narrative: "Project Mocha payout",
+        },
+      }
+    : payload;
+
+  const response = await fetchJson<JsonRecord>(endpoint, {
     method: "POST",
-    body: JSON.stringify(payload),
+    body: JSON.stringify(requestPayload),
   });
 
   const launchUrl = String(
