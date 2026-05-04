@@ -41,6 +41,10 @@ const METRICS_PATH = process.env.ELEMENTPAY_METRICS_PATH ?? "/v1/farmer/metrics"
 const TRANSACTIONS_PATH =
   process.env.ELEMENTPAY_TRANSACTIONS_PATH ?? "/v1/farmer/transactions";
 const OFFRAMP_PATH = process.env.ELEMENTPAY_OFFRAMP_PATH ?? "/orders/create";
+const ORDERS_ME_PATH = process.env.ELEMENTPAY_ORDERS_ME_PATH ?? "/orders/me";
+const ORDERS_WALLET_PATH =
+  process.env.ELEMENTPAY_ORDERS_WALLET_PATH ?? "/orders/wallet";
+const ELEMENTPAY_TOKEN_ADDRESS = process.env.ELEMENTPAY_TOKEN_ADDRESS;
 
 const ensureBaseUrl = () => {
   if (!BASE_URL) {
@@ -138,69 +142,155 @@ const normalizeActivities = (payload: unknown): ActivityItem[] => {
   });
 };
 
+const normalizeOrdersAsActivities = (payload: unknown): ActivityItem[] => {
+  if (!Array.isArray(payload)) return [];
+  return payload.slice(0, 10).map((raw, index) => {
+    const item = (raw ?? {}) as JsonRecord;
+    return {
+      id: String(pick(item, ["order_id", "id", "reference", "tx_hash"]) ?? index),
+      label: String(pick(item, ["order_type", "status"]) ?? "Order"),
+      amount: toNumber(pick(item, ["amount_fiat", "fiat_paid"]), undefined),
+      currency: String(pick(item, ["currency"]) ?? "").toUpperCase() as Currency,
+      status: String(pick(item, ["status"]) ?? ""),
+      timestamp: String(pick(item, ["created_at", "updated_at"]) ?? ""),
+    };
+  });
+};
+
+const summarizeFromOrders = (orders: JsonRecord[]) => {
+  const totals = {
+    totalCoffeeSalesUsd: 0,
+    totalCoffeeSalesKes: 0,
+    balanceUsd: 0,
+    balanceKes: 0,
+    marketplacePaymentsUsd: 0,
+    marketplacePaymentsKes: 0,
+  };
+
+  orders.forEach((order) => {
+    const currency = String(pick(order, ["currency"]) ?? "").toUpperCase();
+    const amount = toNumber(pick(order, ["amount_fiat", "fiat_paid"]), 0) ?? 0;
+    const status = String(pick(order, ["status"]) ?? "").toUpperCase();
+    const isSettled = ["SETTLED", "SUCCESS", "COMPLETED"].includes(status);
+
+    if (currency === "USD") {
+      totals.totalCoffeeSalesUsd += amount;
+      if (isSettled) {
+        totals.marketplacePaymentsUsd += amount;
+        totals.balanceUsd += amount;
+      }
+    } else {
+      totals.totalCoffeeSalesKes += amount;
+      if (isSettled) {
+        totals.marketplacePaymentsKes += amount;
+        totals.balanceKes += amount;
+      }
+    }
+  });
+  return totals;
+};
+
 export const fetchLiveFarmerProfile = async (
   phone: string
 ): Promise<LiveFarmerProfile> => {
-  const walletResponse = await fetchJson<JsonRecord>(
-    withQuery(PHONE_WALLET_PATH, { phone })
-  );
+  try {
+    const walletResponse = await fetchJson<JsonRecord>(
+      withQuery(PHONE_WALLET_PATH, { phone })
+    );
 
-  const walletAddress = String(
-    pick(walletResponse, ["walletAddress", "wallet", "address", "accountAddress"]) ??
-      ""
-  );
+    const walletAddress = String(
+      pick(walletResponse, ["walletAddress", "wallet", "address", "accountAddress"]) ??
+        ""
+    );
 
-  if (!walletAddress) {
-    throw new Error("ElementPay response missing wallet address for this phone.");
+    if (!walletAddress) {
+      throw new Error("ElementPay response missing wallet address for this phone.");
+    }
+
+    const [metricsResponse, transactionsResponse] = await Promise.all([
+      fetchJson<JsonRecord>(
+        withQuery(METRICS_PATH, { phone, wallet: walletAddress })
+      ),
+      fetchJson<JsonRecord>(
+        withQuery(TRANSACTIONS_PATH, { phone, wallet: walletAddress })
+      ),
+    ]);
+
+    return {
+      phone,
+      walletAddress,
+      tokenizedTrees: toNumber(
+        pick(metricsResponse, ["tokenizedTrees", "treesCount", "treeTokens"])
+      ),
+      totalCoffeeSalesUsd: toNumber(
+        pick(metricsResponse, ["totalCoffeeSalesUsd", "coffeeSalesUsd", "salesUsd"])
+      ),
+      totalCoffeeSalesKes: toNumber(
+        pick(metricsResponse, ["totalCoffeeSalesKes", "coffeeSalesKes", "salesKes"])
+      ),
+      balanceUsd: toNumber(
+        pick(metricsResponse, ["balanceUsd", "walletBalanceUsd", "availableUsd"])
+      ),
+      balanceKes: toNumber(
+        pick(metricsResponse, ["balanceKes", "walletBalanceKes", "availableKes"])
+      ),
+      marketplacePaymentsUsd: toNumber(
+        pick(metricsResponse, [
+          "marketplacePaymentsUsd",
+          "paymentsUsd",
+          "settledPaymentsUsd",
+        ])
+      ),
+      marketplacePaymentsKes: toNumber(
+        pick(metricsResponse, [
+          "marketplacePaymentsKes",
+          "paymentsKes",
+          "settledPaymentsKes",
+        ])
+      ),
+      activities: normalizeActivities(
+        pick(transactionsResponse, ["items", "transactions", "results", "data"])
+      ),
+      isLive: true,
+      lastSyncedAt: new Date().toISOString(),
+    };
+  } catch {
+    const ordersResponse = await fetchJson<JsonRecord>(resolveUrl(ORDERS_ME_PATH));
+    const orders = (pick(ordersResponse, ["data", "orders", "results"]) ?? []) as JsonRecord[];
+    const matchingByPhone = orders.filter((o) =>
+      String(pick(o, ["phone_number", "phone"]) ?? "").includes(phone.replace("+", ""))
+    );
+    const source = matchingByPhone.length > 0 ? matchingByPhone : orders;
+    const walletAddress = String(
+      pick(source[0] ?? {}, ["wallet_address", "walletAddress", "wallet"]) ?? ""
+    );
+
+    if (!walletAddress) {
+      throw new Error(
+        "ElementPay returned orders, but no wallet mapping for this phone yet. Complete ElementPay USSD onboarding first."
+      );
+    }
+
+    const walletOrdersResponse = await fetchJson<JsonRecord>(
+      withQuery(ORDERS_WALLET_PATH, { wallet_address: walletAddress, limit: "50" })
+    );
+    const walletOrders = (pick(walletOrdersResponse, [
+      "data",
+      "orders",
+      "results",
+    ]) ?? []) as JsonRecord[];
+    const totals = summarizeFromOrders(walletOrders);
+
+    return {
+      phone,
+      walletAddress,
+      tokenizedTrees: 0,
+      ...totals,
+      activities: normalizeOrdersAsActivities(walletOrders),
+      isLive: true,
+      lastSyncedAt: new Date().toISOString(),
+    };
   }
-
-  const [metricsResponse, transactionsResponse] = await Promise.all([
-    fetchJson<JsonRecord>(
-      withQuery(METRICS_PATH, { phone, wallet: walletAddress })
-    ),
-    fetchJson<JsonRecord>(
-      withQuery(TRANSACTIONS_PATH, { phone, wallet: walletAddress })
-    ),
-  ]);
-
-  return {
-    phone,
-    walletAddress,
-    tokenizedTrees: toNumber(
-      pick(metricsResponse, ["tokenizedTrees", "treesCount", "treeTokens"])
-    ),
-    totalCoffeeSalesUsd: toNumber(
-      pick(metricsResponse, ["totalCoffeeSalesUsd", "coffeeSalesUsd", "salesUsd"])
-    ),
-    totalCoffeeSalesKes: toNumber(
-      pick(metricsResponse, ["totalCoffeeSalesKes", "coffeeSalesKes", "salesKes"])
-    ),
-    balanceUsd: toNumber(
-      pick(metricsResponse, ["balanceUsd", "walletBalanceUsd", "availableUsd"])
-    ),
-    balanceKes: toNumber(
-      pick(metricsResponse, ["balanceKes", "walletBalanceKes", "availableKes"])
-    ),
-    marketplacePaymentsUsd: toNumber(
-      pick(metricsResponse, [
-        "marketplacePaymentsUsd",
-        "paymentsUsd",
-        "settledPaymentsUsd",
-      ])
-    ),
-    marketplacePaymentsKes: toNumber(
-      pick(metricsResponse, [
-        "marketplacePaymentsKes",
-        "paymentsKes",
-        "settledPaymentsKes",
-      ])
-    ),
-    activities: normalizeActivities(
-      pick(transactionsResponse, ["items", "transactions", "results", "data"])
-    ),
-    isLive: true,
-    lastSyncedAt: new Date().toISOString(),
-  };
 };
 
 export const createOffRampSession = async (
@@ -214,6 +304,7 @@ export const createOffRampSession = async (
   const requestPayload = maybeOrderPayload
     ? {
         user_address: payload.walletAddress,
+        ...(ELEMENTPAY_TOKEN_ADDRESS ? { token: ELEMENTPAY_TOKEN_ADDRESS } : {}),
         order_type: 1,
         fiat_payload: {
           amount_fiat: payload.amount,

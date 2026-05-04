@@ -22,6 +22,9 @@ Optional (defaults provided):
 - `ELEMENTPAY_METRICS_PATH`
 - `ELEMENTPAY_TRANSACTIONS_PATH`
 - `ELEMENTPAY_OFFRAMP_PATH`
+- `ELEMENTPAY_ORDERS_ME_PATH`
+- `ELEMENTPAY_ORDERS_WALLET_PATH`
+- `ELEMENTPAY_TOKEN_ADDRESS` (recommended for `/orders/create` integrations)
 
 All path variables also accept a full URL if your integration uses different hosts per endpoint.
 
