@@ -2,6 +2,8 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import type { ActivityItem, LiveFarmerProfile } from "@/lib/elementpay";
+import type { MarketplaceLiveSnapshot } from "@/lib/marketplace";
+import { MARKETPLACE_URL } from "@/lib/marketplace";
 
 const usdToKesRate = 128.2;
 
@@ -17,13 +19,15 @@ const asCurrencyLine = (amount?: number, currency?: string) => {
 export default function Home() {
   const [phone, setPhone] = useState("+254");
   const [profile, setProfile] = useState<LiveFarmerProfile | null>(null);
+  const [marketplace, setMarketplace] = useState<MarketplaceLiveSnapshot | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isMarketplaceLoading, setIsMarketplaceLoading] = useState(true);
   const [isSubmittingPayout, setIsSubmittingPayout] = useState(false);
   const [error, setError] = useState("");
   const [showPayoutModal, setShowPayoutModal] = useState(false);
   const [payoutCurrency, setPayoutCurrency] = useState<"KES" | "USD">("KES");
   const [payoutAmount, setPayoutAmount] = useState("0");
-  const [recentActivities, setRecentActivities] = useState<ActivityItem[]>([]);
+  const [farmerPayouts, setFarmerPayouts] = useState<ActivityItem[]>([]);
 
   const offRampUrl = useMemo(() => {
     if (!profile) return "https://dapp.elementpay.net/";
@@ -35,6 +39,35 @@ export default function Home() {
     });
     return `https://dapp.elementpay.net/?${q.toString()}`;
   }, [profile, payoutAmount, payoutCurrency]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const fetchMarketplace = async () => {
+      try {
+        const response = await fetch("/api/marketplace-live");
+        const data = (await response.json()) as MarketplaceLiveSnapshot & { error?: string };
+        if (!response.ok) {
+          throw new Error(data.error || "Failed to load marketplace data");
+        }
+        if (!cancelled) setMarketplace(data);
+      } catch {
+        if (!cancelled) setMarketplace(null);
+      } finally {
+        if (!cancelled) setIsMarketplaceLoading(false);
+      }
+    };
+
+    void fetchMarketplace();
+    const interval = setInterval(() => {
+      void fetchMarketplace();
+    }, 30000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, []);
 
   const loadProfile = async (phoneNumber: string) => {
     setIsLoading(true);
@@ -48,7 +81,9 @@ export default function Home() {
         throw new Error(data.error || "Failed to load profile");
       }
       setProfile(data);
-      setRecentActivities(data.activities ?? []);
+      setFarmerPayouts(
+        (data.activities ?? []).filter((activity) => activity.status === "settled")
+      );
     } catch (loadError) {
       setError(
         loadError instanceof Error
@@ -111,6 +146,17 @@ export default function Home() {
     }
   };
 
+  const marketplaceButton = (
+    <a
+      href={MARKETPLACE_URL}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="rounded-full bg-[#6f4e37] px-4 py-2 text-sm font-medium text-white transition hover:bg-[#5a3f2d]"
+    >
+      Marketplace Live
+    </a>
+  );
+
   return (
     <div className="min-h-screen bg-[#f7f3ee] text-[#2d2218]">
       <main className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-5 sm:px-6 md:px-8">
@@ -121,10 +167,132 @@ export default function Home() {
             </p>
             <h1 className="text-lg font-semibold sm:text-xl">Farmer Portal</h1>
           </div>
-          <button className="rounded-full bg-[#6f4e37] px-4 py-2 text-sm font-medium text-white">
-            {profile?.isLive ? "Marketplace Live" : "Awaiting Live Connection"}
-          </button>
+          {marketplaceButton}
         </header>
+
+        <section className={`${cardClass} p-6`}>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-xs uppercase tracking-[0.2em] text-[#8b6b4a]">
+                Marketplace overview
+              </p>
+              <h2 className="mt-2 text-lg font-semibold">Live marketplace activity</h2>
+              <p className="mt-1 text-sm text-[#6e5842]">
+                Metrics sourced from confirmed marketplace records and coffee batch inventory.
+              </p>
+            </div>
+            <a
+              href={MARKETPLACE_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm font-medium text-[#6f4e37] underline-offset-2 hover:underline"
+            >
+              Open marketplace
+            </a>
+          </div>
+
+          {isMarketplaceLoading && !marketplace ? (
+            <p className="mt-4 text-sm text-[#7a6652]">Loading marketplace data...</p>
+          ) : marketplace ? (
+            <>
+              <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+                <article className="rounded-xl bg-[#faf6f1] p-4">
+                  <p className="text-xs uppercase tracking-wider text-[#8b6b4a]">
+                    Total Coffee Sold
+                  </p>
+                  <p className="mt-2 text-xl font-semibold">
+                    {marketplace.totalCoffeeSoldKg.toLocaleString()} kg
+                  </p>
+                  <p className="text-xs text-[#7a6652]">
+                    {marketplace.hasOrderData ? "Paid orders" : "Allocated inventory"}
+                  </p>
+                </article>
+                <article className="rounded-xl bg-[#faf6f1] p-4">
+                  <p className="text-xs uppercase tracking-wider text-[#8b6b4a]">
+                    Marketplace Revenue
+                  </p>
+                  <p className="mt-2 text-xl font-semibold">
+                    KES {marketplace.totalRevenueKes.toLocaleString()}
+                  </p>
+                  <p className="text-xs text-[#7a6652]">Confirmed payments only</p>
+                </article>
+                <article className="rounded-xl bg-[#faf6f1] p-4">
+                  <p className="text-xs uppercase tracking-wider text-[#8b6b4a]">
+                    Active Coffee Batches
+                  </p>
+                  <p className="mt-2 text-xl font-semibold">
+                    {marketplace.activeCoffeeBatches.toLocaleString()}
+                  </p>
+                  <p className="text-xs text-[#7a6652]">Available or allocated</p>
+                </article>
+                <article className="rounded-xl bg-[#faf6f1] p-4">
+                  <p className="text-xs uppercase tracking-wider text-[#8b6b4a]">
+                    Active Merchants
+                  </p>
+                  <p className="mt-2 text-xl font-semibold">
+                    {marketplace.activeMerchants.toLocaleString()}
+                  </p>
+                  <p className="text-xs text-[#7a6652]">Selling on marketplace</p>
+                </article>
+                <article className="rounded-xl bg-[#faf6f1] p-4">
+                  <p className="text-xs uppercase tracking-wider text-[#8b6b4a]">
+                    Coffee Under Management
+                  </p>
+                  <p className="mt-2 text-xl font-semibold">
+                    {marketplace.coffeeUnderManagementKg.toLocaleString()} kg
+                  </p>
+                  <p className="text-xs text-[#7a6652]">
+                    {marketplace.coffeeAllocatedKg.toLocaleString()} kg allocated
+                  </p>
+                </article>
+              </div>
+
+              <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                <div className="rounded-xl border border-[#eadfce] bg-white px-4 py-3 text-sm">
+                  <p className="text-xs uppercase tracking-wider text-[#8b6b4a]">Total Customers</p>
+                  <p className="mt-1 text-lg font-semibold">{marketplace.totalCustomers}</p>
+                </div>
+                <div className="rounded-xl border border-[#eadfce] bg-white px-4 py-3 text-sm">
+                  <p className="text-xs uppercase tracking-wider text-[#8b6b4a]">Returning Customers</p>
+                  <p className="mt-1 text-lg font-semibold">{marketplace.returningCustomers}</p>
+                </div>
+                <div className="rounded-xl border border-[#eadfce] bg-white px-4 py-3 text-sm">
+                  <p className="text-xs uppercase tracking-wider text-[#8b6b4a]">Orders This Week</p>
+                  <p className="mt-1 text-lg font-semibold">{marketplace.ordersThisWeek}</p>
+                </div>
+              </div>
+
+              <div className="mt-5">
+                <p className="text-xs uppercase tracking-[0.2em] text-[#8b6b4a]">
+                  Recent marketplace activity
+                </p>
+                <div className="mt-3 space-y-3 text-sm">
+                  {marketplace.activities.length > 0 ? (
+                    marketplace.activities.map((activity) => (
+                      <div key={activity.id} className="rounded-xl bg-[#faf6f1] p-3">
+                        <p>{activity.message}</p>
+                        <p className="mt-1 text-xs text-[#7a6652]">
+                          {new Date(activity.timestamp).toLocaleString()}
+                        </p>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="rounded-xl bg-[#faf6f1] p-3 text-[#7a6652]">
+                      No marketplace activity recorded yet.
+                    </div>
+                  )}
+                </div>
+                <p className="mt-3 text-xs text-[#7a6652]">
+                  Last synced: {new Date(marketplace.lastSyncedAt).toLocaleString()}
+                </p>
+              </div>
+            </>
+          ) : (
+            <p className="mt-4 text-sm text-[#8a4f1e]">
+              Marketplace data is temporarily unavailable. You can still browse the live marketplace.
+            </p>
+          )}
+        </section>
 
         {!profile ? (
           <section className="grid gap-4 md:grid-cols-[1.1fr_1fr]">
@@ -166,10 +334,6 @@ export default function Home() {
                   {error}
                 </p>
               ) : null}
-              <p className="mt-3 text-xs text-[#7a6652]">
-                Reown AppKit evaluation: enabled for future social wallet and
-                passkey fallback.
-              </p>
             </div>
 
             <div className={`${cardClass} p-6`}>
@@ -177,113 +341,88 @@ export default function Home() {
                 What this dashboard includes
               </p>
               <ul className="mt-4 space-y-3 text-sm text-[#3f2f22]">
-                <li>Total coffee sales overview</li>
-                <li>KES/USD balance tracking</li>
-                <li>Marketplace payment visibility</li>
-                <li>Tokenized tree progress</li>
+                <li>Live marketplace overview and activity feed</li>
+                <li>Farmer wallet mapping via ElementPay</li>
+                <li>Confirmed marketplace payment visibility</li>
+                <li>Coffee batch and allocation tracking</li>
                 <li>ElementPay off-ramp launch flow</li>
               </ul>
+              <a
+                href={MARKETPLACE_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-6 inline-flex rounded-xl border border-[#d8c8bb] bg-white px-4 py-3 text-sm font-medium"
+              >
+                Browse live marketplace
+              </a>
             </div>
           </section>
         ) : (
-          <>
-            <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <article className={cardClass}>
-                <p className="text-xs uppercase tracking-wider text-[#8b6b4a]">
-                  Total Coffee Sales
+          <section className="grid gap-4 md:grid-cols-[1.1fr_1fr]">
+            <div className={`${cardClass} p-6`}>
+              <p className="text-xs uppercase tracking-[0.2em] text-[#8b6b4a]">
+                Farmer profile
+              </p>
+              <h2 className="mt-2 text-lg font-semibold">Wallet & payouts</h2>
+              <p className="mt-1 text-xs text-[#7a6652]">
+                Last synced: {new Date(profile.lastSyncedAt).toLocaleString()}
+              </p>
+              <div className="mt-4 rounded-xl bg-[#f8f3ee] p-4 text-sm">
+                <p>
+                  <span className="font-medium">Phone:</span> {profile.phone}
                 </p>
-                <p className="mt-2 text-xl font-semibold">
-                  ${profile.totalCoffeeSalesUsd.toLocaleString()}
+                <p className="mt-2 break-all">
+                  <span className="font-medium">Wallet:</span> {profile.walletAddress}
                 </p>
-                <p className="text-sm text-[#7a6652]">
-                  KES {profile.totalCoffeeSalesKes.toLocaleString()}
-                </p>
-              </article>
-              <article className={cardClass}>
-                <p className="text-xs uppercase tracking-wider text-[#8b6b4a]">
-                  Current Balance
-                </p>
-                <p className="mt-2 text-xl font-semibold">
-                  ${profile.balanceUsd.toLocaleString()}
-                </p>
-                <p className="text-sm text-[#7a6652]">
-                  KES {profile.balanceKes.toLocaleString()}
-                </p>
-              </article>
-              <article className={cardClass}>
-                <p className="text-xs uppercase tracking-wider text-[#8b6b4a]">
-                  Marketplace Payments
-                </p>
-                <p className="mt-2 text-xl font-semibold">
-                  ${profile.marketplacePaymentsUsd.toLocaleString()}
-                </p>
-                <p className="text-sm text-[#7a6652]">
-                  KES {profile.marketplacePaymentsKes.toLocaleString()}
-                </p>
-              </article>
-              <article className={cardClass}>
-                <p className="text-xs uppercase tracking-wider text-[#8b6b4a]">
-                  Tokenized Trees
-                </p>
-                <p className="mt-2 text-xl font-semibold">
-                  {profile.tokenizedTrees.toLocaleString()}
-                </p>
-                <p className="text-sm text-[#7a6652]">Linked to your profile</p>
-              </article>
-            </section>
-
-            <section className="grid gap-4 md:grid-cols-[1.1fr_1fr]">
-              <div className={`${cardClass} p-6`}>
-                <p className="text-xs uppercase tracking-[0.2em] text-[#8b6b4a]">
-                  Farmer profile
-                </p>
-                <h2 className="mt-2 text-lg font-semibold">Wallet onboarding</h2>
-                <p className="mt-1 text-xs text-[#7a6652]">
-                  Last synced: {new Date(profile.lastSyncedAt).toLocaleString()}
-                </p>
-                <div className="mt-4 rounded-xl bg-[#f8f3ee] p-4 text-sm">
-                  <p>
-                    <span className="font-medium">Phone:</span> {profile.phone}
-                  </p>
-                  <p className="mt-2 break-all">
-                    <span className="font-medium">Wallet:</span>{" "}
-                    {profile.walletAddress}
-                  </p>
-                </div>
-                <button
-                  className="mt-4 w-full rounded-xl border border-[#d8c8bb] bg-white px-4 py-3 text-sm font-medium"
-                  onClick={() => setShowPayoutModal(true)}
-                >
-                  Open payout modal
-                </button>
               </div>
-
-              <div className={`${cardClass} p-6`}>
-                <p className="text-xs uppercase tracking-[0.2em] text-[#8b6b4a]">
-                  Real-time marketplace visibility
+              <button
+                className="mt-4 w-full rounded-xl border border-[#d8c8bb] bg-white px-4 py-3 text-sm font-medium"
+                onClick={() => setShowPayoutModal(true)}
+              >
+                Open payout modal
+              </button>
+              <div className="mt-4 space-y-2 text-sm">
+                <p className="text-xs uppercase tracking-wider text-[#8b6b4a]">
+                  Settled payouts
                 </p>
-                <h2 className="mt-2 text-lg font-semibold">Recent activity</h2>
-                <div className="mt-4 space-y-3 text-sm">
-                  {recentActivities.length > 0 ? (
-                    recentActivities.map((activity) => (
-                      <div key={activity.id} className="rounded-xl bg-[#faf6f1] p-3">
-                        <p>{activity.label}</p>
-                        <p className="mt-1 text-xs text-[#7a6652]">
-                          {[asCurrencyLine(activity.amount, activity.currency), activity.status]
-                            .filter(Boolean)
-                            .join(" - ")}
-                        </p>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="rounded-xl bg-[#faf6f1] p-3 text-[#7a6652]">
-                      No live transactions yet for this farmer profile.
+                {farmerPayouts.length > 0 ? (
+                  farmerPayouts.map((activity) => (
+                    <div key={activity.id} className="rounded-xl bg-[#faf6f1] p-3">
+                      <p>Off-ramp payout settled</p>
+                      <p className="mt-1 text-xs text-[#7a6652]">
+                        {[asCurrencyLine(activity.amount, activity.currency), activity.timestamp ? new Date(activity.timestamp).toLocaleString() : ""]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </p>
                     </div>
-                  )}
-                </div>
+                  ))
+                ) : (
+                  <div className="rounded-xl bg-[#faf6f1] p-3 text-[#7a6652]">
+                    No settled payouts yet for this wallet.
+                  </div>
+                )}
               </div>
-            </section>
-          </>
+            </div>
+
+            <div className={`${cardClass} p-6`}>
+              <p className="text-xs uppercase tracking-[0.2em] text-[#8b6b4a]">
+                Marketplace connection
+              </p>
+              <h2 className="mt-2 text-lg font-semibold">Your marketplace link</h2>
+              <p className="mt-3 text-sm text-[#6e5842]">
+                Marketplace sales, merchant activity, and coffee batch allocations are tracked on
+                the live Project Mocha marketplace.
+              </p>
+              <a
+                href={MARKETPLACE_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-4 inline-flex w-full items-center justify-center rounded-xl bg-[#6f4e37] px-4 py-3 text-sm font-medium text-white"
+              >
+                Go to live marketplace
+              </a>
+            </div>
+          </section>
         )}
       </main>
 

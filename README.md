@@ -35,6 +35,12 @@ The frontend calls internal API routes:
 
 These routes fetch live data from ElementPay and normalize it for the dashboard.
 
+Marketplace live dashboard:
+
+- `GET /api/marketplace-live`
+- Canonical marketplace URL: `https://mocha-coffee-marketplace.vercel.app/`
+- Optional `MARKETPLACE_SERVICE_TOKEN` unlocks paid-order, merchant, and customer metrics from the marketplace backend.
+
 ## Getting Started
 
 ```bash
