@@ -385,7 +385,98 @@ export default function Home() {
             </div>
           </section>
         ) : (
-          <section className="grid gap-4 lg:grid-cols-[1.1fr_1fr]">
+          <>
+            <section className={cardClass}>
+              <div className="border-b border-[var(--jungle-green-border)] bg-[var(--jungle-green-surface)] px-5 py-5 sm:px-6">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className={labelClass}>Your wallet</p>
+                    <h2 className="mt-1 text-2xl font-bold text-[var(--charcoal)] sm:text-3xl">
+                      Balances & coffee income
+                    </h2>
+                    <p className="mt-2 text-sm text-gray-600">
+                      Live data from ElementPay for {profile.phone}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setProfile(null);
+                      setFarmerPayouts([]);
+                      setError("");
+                    }}
+                    className={`${outlineButtonClass} px-4 py-2 text-sm`}
+                  >
+                    Sign out
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-6 p-5 sm:p-6">
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                  {[
+                    {
+                      label: "KES Balance",
+                      value: `KES ${profile.balanceKes.toLocaleString()}`,
+                      hint: "Available wallet balance",
+                    },
+                    {
+                      label: "USD Balance",
+                      value: `$${profile.balanceUsd.toLocaleString()}`,
+                      hint: "Available wallet balance",
+                    },
+                    {
+                      label: "Coffee Sales",
+                      value: `KES ${profile.totalCoffeeSalesKes.toLocaleString()}`,
+                      hint: `$${profile.totalCoffeeSalesUsd.toLocaleString()} USD equivalent`,
+                    },
+                    {
+                      label: "Marketplace Payments",
+                      value: `KES ${profile.marketplacePaymentsKes.toLocaleString()}`,
+                      hint: `$${profile.marketplacePaymentsUsd.toLocaleString()} USD received`,
+                    },
+                  ].map((stat) => (
+                    <article key={stat.label} className={statCardClass}>
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-500">
+                        {stat.label}
+                      </p>
+                      <p className="mt-2 text-2xl font-semibold tabular-nums text-[#202d07]">
+                        {stat.value}
+                      </p>
+                      <p className="mt-1 text-xs text-gray-500">{stat.hint}</p>
+                    </article>
+                  ))}
+                </div>
+
+                {profile.activities.length > 0 ? (
+                  <div>
+                    <p className={labelClass}>Recent wallet activity</p>
+                    <div className="mt-3 space-y-3 text-sm">
+                      {profile.activities.slice(0, 6).map((activity) => (
+                        <div key={activity.id} className={`${surfaceClass} p-3`}>
+                          <p className="text-[var(--charcoal)]">
+                            {activity.label || "Wallet transaction"}
+                          </p>
+                          <p className="mt-1 text-xs text-gray-500">
+                            {[
+                              asCurrencyLine(activity.amount, activity.currency),
+                              activity.status,
+                              activity.timestamp
+                                ? new Date(activity.timestamp).toLocaleString()
+                                : "",
+                            ]
+                              .filter(Boolean)
+                              .join(" · ")}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            </section>
+
+            <section className="grid gap-4 lg:grid-cols-[1.1fr_1fr]">
             <div className={cardClass}>
               <div className="border-b border-[var(--jungle-green-border)] bg-[var(--jungle-green-surface)] px-5 py-5 sm:px-6">
                 <p className={labelClass}>Farmer profile</p>
@@ -453,6 +544,7 @@ export default function Home() {
               </a>
             </div>
           </section>
+          </>
         )}
       </main>
 
@@ -491,7 +583,8 @@ export default function Home() {
               </button>
             </div>
             <p className="mt-2 text-sm text-gray-600">
-              Select amount and launch secure off-ramp flow.
+              Select amount and launch secure off-ramp flow. Approve the ElementPay
+              contract to spend tokens before your first payout.
             </p>
 
             <div className="mt-4 grid grid-cols-2 gap-2 rounded-full border border-[#202d07]/15 bg-[var(--jungle-green-surface)] p-1">

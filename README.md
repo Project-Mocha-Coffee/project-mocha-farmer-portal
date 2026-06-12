@@ -62,4 +62,12 @@ Open [http://localhost:3000](http://localhost:3000) with your browser to see the
 
 ## Deploy
 
-Production is deployed on Vercel. Set the same ElementPay environment variables in the Vercel project settings so live data works in production.
+Production: [https://project-mocha-farmer-portal.vercel.app](https://project-mocha-farmer-portal.vercel.app)
+
+Pushes to `main` auto-deploy via GitHub Actions (`.github/workflows/deploy-vercel.yml`). Set these GitHub repository secrets if you fork the project:
+
+- `VERCEL_TOKEN`
+- `VERCEL_ORG_ID`
+- `VERCEL_PROJECT_ID`
+
+Set the ElementPay and marketplace environment variables in the Vercel project settings so live data works in production.
