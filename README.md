@@ -39,7 +39,18 @@ Marketplace live dashboard:
 
 - `GET /api/marketplace-live`
 - Canonical marketplace URL: `https://mocha-coffee-marketplace.vercel.app/`
-- Optional `MARKETPLACE_SERVICE_TOKEN` unlocks paid-order, merchant, and customer metrics from the marketplace backend.
+- Paid-order, merchant, and customer metrics require marketplace admin auth. Use either:
+  - `MARKETPLACE_ADMIN_EMAIL` + `MARKETPLACE_ADMIN_PASSWORD` (recommended), or
+  - `MARKETPLACE_SERVICE_TOKEN` (admin JWT pasted from browser)
+
+### Where to find `MARKETPLACE_SERVICE_TOKEN`
+
+1. Open [https://mocha-coffee-marketplace.vercel.app/admin/login](https://mocha-coffee-marketplace.vercel.app/admin/login)
+2. Sign in with your **admin** email and password
+3. Open browser DevTools → Application → Local Storage
+4. Copy the value of `admin_token` (this is the JWT)
+
+Alternatively, set `MARKETPLACE_ADMIN_EMAIL` and `MARKETPLACE_ADMIN_PASSWORD` in Vercel instead — the farmer portal will sign in server-side automatically.
 
 ## Getting Started
 

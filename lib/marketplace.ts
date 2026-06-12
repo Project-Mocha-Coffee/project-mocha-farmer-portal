@@ -68,6 +68,50 @@ const BASE_URL =
   "https://mocha-coffee-marketplace-backend.vercel.app/api";
 
 const SERVICE_TOKEN = process.env.MARKETPLACE_SERVICE_TOKEN;
+const ADMIN_EMAIL = process.env.MARKETPLACE_ADMIN_EMAIL;
+const ADMIN_PASSWORD = process.env.MARKETPLACE_ADMIN_PASSWORD;
+
+let cachedAuthToken: string | null = null;
+let cachedAuthExpiresAt = 0;
+
+const decodeJwtExpiry = (token: string) => {
+  try {
+    const payload = JSON.parse(
+      Buffer.from(token.split(".")[1], "base64url").toString("utf8")
+    ) as { exp?: number };
+    return payload.exp ? payload.exp * 1000 : 0;
+  } catch {
+    return 0;
+  }
+};
+
+const resolveMarketplaceAuthToken = async (): Promise<string | null> => {
+  if (SERVICE_TOKEN) return SERVICE_TOKEN;
+
+  const now = Date.now();
+  if (cachedAuthToken && cachedAuthExpiresAt > now + 60_000) {
+    return cachedAuthToken;
+  }
+
+  if (!ADMIN_EMAIL || !ADMIN_PASSWORD) return null;
+
+  const response = await fetch(`${BASE_URL.replace(/\/$/, "")}/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: ADMIN_EMAIL, password: ADMIN_PASSWORD }),
+    next: { revalidate: 0 },
+  });
+
+  if (!response.ok) return null;
+
+  const data = (await response.json()) as { access_token?: string };
+  const token = data.access_token?.trim();
+  if (!token) return null;
+
+  cachedAuthToken = token;
+  cachedAuthExpiresAt = decodeJwtExpiry(token) || now + 6 * 60 * 60 * 1000;
+  return token;
+};
 
 const toNumber = (value: unknown, fallback = 0) => {
   if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -88,12 +132,15 @@ const isRevenueRecognizedOrder = (order: AdminOrder) => {
   return true;
 };
 
-const fetchJson = async <T>(path: string, auth = false): Promise<T> => {
+const fetchJson = async <T>(
+  path: string,
+  authToken: string | null = null
+): Promise<T> => {
   const url = path.startsWith("http") ? path : `${BASE_URL.replace(/\/$/, "")}${path.startsWith("/") ? path : `/${path}`}`;
   const response = await fetch(url, {
     headers: {
       "Content-Type": "application/json",
-      ...(auth && SERVICE_TOKEN ? { Authorization: `Bearer ${SERVICE_TOKEN}` } : {}),
+      ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
     },
     next: { revalidate: 0 },
   });
@@ -140,6 +187,7 @@ const formatBatchActivity = (batch: BatchRecord): string | null => {
 };
 
 export const fetchMarketplaceLive = async (): Promise<MarketplaceLiveSnapshot> => {
+  const authToken = await resolveMarketplaceAuthToken();
   const batches = await fetchJson<BatchRecord[]>("/batches");
 
   const coffeeUnderManagementKg = batches.reduce(
@@ -172,12 +220,12 @@ export const fetchMarketplaceLive = async (): Promise<MarketplaceLiveSnapshot> =
   let users: UserRecord[] = [];
   let hasOrderData = false;
 
-  if (SERVICE_TOKEN) {
+  if (authToken) {
     try {
       const [ordersRes, merchantsRes, usersRes] = await Promise.all([
-        fetchJson<AdminOrder[]>("/orders/admin/list?status=all", true),
-        fetchJson<MerchantRecord[]>("/merchants", true),
-        fetchJson<UserRecord[]>("/users", true),
+        fetchJson<AdminOrder[]>("/orders/admin/list?status=all", authToken),
+        fetchJson<MerchantRecord[]>("/merchants", authToken),
+        fetchJson<UserRecord[]>("/users", authToken),
       ]);
       paidOrders = ordersRes.filter(isRevenueRecognizedOrder);
       merchants = merchantsRes.filter(
