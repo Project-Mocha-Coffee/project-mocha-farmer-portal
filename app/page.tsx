@@ -18,6 +18,27 @@ import {
 } from "@/lib/design";
 
 const usdToKesRate = 128.2;
+const MARKETPLACE_CACHE_KEY = "pm-farmer-marketplace-live";
+
+const readCachedMarketplace = (): MarketplaceLiveSnapshot | null => {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = sessionStorage.getItem(MARKETPLACE_CACHE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as MarketplaceLiveSnapshot;
+  } catch {
+    return null;
+  }
+};
+
+const writeCachedMarketplace = (snapshot: MarketplaceLiveSnapshot) => {
+  if (typeof window === "undefined") return;
+  try {
+    sessionStorage.setItem(MARKETPLACE_CACHE_KEY, JSON.stringify(snapshot));
+  } catch {
+    // Ignore storage quota errors.
+  }
+};
 
 const asCurrencyLine = (amount?: number, currency?: string) => {
   if (amount === undefined || !currency) return "";
@@ -28,9 +49,14 @@ const asCurrencyLine = (amount?: number, currency?: string) => {
 export default function Home() {
   const [phone, setPhone] = useState("+254");
   const [profile, setProfile] = useState<LiveFarmerProfile | null>(null);
-  const [marketplace, setMarketplace] = useState<MarketplaceLiveSnapshot | null>(null);
+  const [marketplace, setMarketplace] = useState<MarketplaceLiveSnapshot | null>(() =>
+    readCachedMarketplace()
+  );
   const [isLoading, setIsLoading] = useState(false);
-  const [isMarketplaceLoading, setIsMarketplaceLoading] = useState(true);
+  const [isMarketplaceLoading, setIsMarketplaceLoading] = useState(
+    () => !readCachedMarketplace()
+  );
+  const [marketplaceError, setMarketplaceError] = useState("");
   const [isSubmittingPayout, setIsSubmittingPayout] = useState(false);
   const [error, setError] = useState("");
   const [showPayoutModal, setShowPayoutModal] = useState(false);
@@ -51,25 +77,56 @@ export default function Home() {
 
   useEffect(() => {
     let cancelled = false;
+    const hadCachedSnapshot = Boolean(readCachedMarketplace());
 
-    const fetchMarketplace = async () => {
+    const fetchMarketplace = async (showLoading: boolean) => {
+      if (showLoading) {
+        setIsMarketplaceLoading(true);
+      }
+      setMarketplaceError("");
+
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 20_000);
+
       try {
-        const response = await fetch("/api/marketplace-live");
-        const data = (await response.json()) as MarketplaceLiveSnapshot & { error?: string };
+        const response = await fetch("/api/marketplace-live", {
+          signal: controller.signal,
+          cache: "no-store",
+        });
+        const data = (await response.json()) as MarketplaceLiveSnapshot & {
+          error?: string;
+        };
+
         if (!response.ok) {
           throw new Error(data.error || "Failed to load marketplace data");
         }
-        if (!cancelled) setMarketplace(data);
-      } catch {
-        if (!cancelled) setMarketplace(null);
+
+        if (!cancelled) {
+          setMarketplace(data);
+          writeCachedMarketplace(data);
+          setMarketplaceError(data.degraded ? data.loadError || "" : "");
+        }
+      } catch (fetchError) {
+        if (!cancelled) {
+          const message =
+            fetchError instanceof Error
+              ? fetchError.name === "AbortError"
+                ? "Marketplace data timed out. Retrying automatically..."
+                : fetchError.message
+              : "Failed to load marketplace data";
+          setMarketplaceError(message);
+        }
       } finally {
-        if (!cancelled) setIsMarketplaceLoading(false);
+        clearTimeout(timeout);
+        if (!cancelled) {
+          setIsMarketplaceLoading(false);
+        }
       }
     };
 
-    void fetchMarketplace();
+    void fetchMarketplace(!hadCachedSnapshot);
     const interval = setInterval(() => {
-      void fetchMarketplace();
+      void fetchMarketplace(false);
     }, 30000);
 
     return () => {
@@ -229,6 +286,11 @@ export default function Home() {
               <p className="text-sm text-gray-500">Loading marketplace data...</p>
             ) : marketplace ? (
               <>
+                {marketplaceError ? (
+                  <p className="rounded-xl bg-[#fff1e6] px-3 py-2 text-xs text-[#522912]">
+                    {marketplaceError}
+                  </p>
+                ) : null}
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
                   {[
                     {
@@ -313,10 +375,49 @@ export default function Home() {
                 </div>
               </>
             ) : (
-              <p className="text-sm text-[#522912]">
-                Marketplace data is temporarily unavailable. You can still browse the live
-                marketplace.
-              </p>
+              <div className="space-y-3">
+                <p className="text-sm text-[#522912]">
+                  {marketplaceError ||
+                    "Marketplace data is temporarily unavailable. You can still browse the live marketplace."}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsMarketplaceLoading(true);
+                    setMarketplaceError("");
+                    void fetch("/api/marketplace-live", { cache: "no-store" })
+                      .then(async (response) => {
+                        const data = (await response.json()) as MarketplaceLiveSnapshot & {
+                          error?: string;
+                        };
+                        if (!response.ok) {
+                          throw new Error(data.error || "Failed to load marketplace data");
+                        }
+                        setMarketplace(data);
+                        writeCachedMarketplace(data);
+                      })
+                      .catch((retryError) => {
+                        setMarketplaceError(
+                          retryError instanceof Error
+                            ? retryError.message
+                            : "Failed to load marketplace data"
+                        );
+                      })
+                      .finally(() => setIsMarketplaceLoading(false));
+                  }}
+                  className={`${outlineButtonClass} px-4 py-2 text-sm`}
+                >
+                  Retry marketplace sync
+                </button>
+                <a
+                  href={MARKETPLACE_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={`${primaryButtonClass} inline-flex px-4 py-2 text-sm`}
+                >
+                  Open live marketplace
+                </a>
+              </div>
             )}
           </div>
         </section>
