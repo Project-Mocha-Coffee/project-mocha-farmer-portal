@@ -2,15 +2,15 @@
 
 :root {
   --mocha-brown: #522912;
-  --forest-green: #003d21;
-  --jungle-green: #003d21;
-  --jungle-green-hover: #002b18;
-  --jungle-green-surface: #eff3ec;
-  --jungle-green-border: #dde3dc;
-  --charcoal: #102117;
-  --cream: #fcfaf7;
-  --beige: #eff3ec;
-  --background: #fcfaf7;
+  --forest-green: #283C09;
+  --jungle-green: #283C09;
+  --jungle-green-hover: #1E2D07;
+  --jungle-green-surface: #F7F8F4;
+  --jungle-green-border: #E5E8E0;
+  --charcoal: #2F201A;
+  --cream: #FFFFFF;
+  --beige: #F7F8F4;
+  --background: #FFFFFF;
   --foreground: var(--charcoal);
   --font-poppins: "Poppins", ui-sans-serif, system-ui, sans-serif;
   --font-fredoka: "Fredoka", ui-sans-serif, system-ui, sans-serif;

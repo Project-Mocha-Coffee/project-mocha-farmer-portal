@@ -234,24 +234,24 @@ export default function Home() {
           <nav className="hidden items-center gap-1 md:flex" aria-label="Primary">
             <a
               href={MAIN_SITE_URL}
-              className="rounded-full px-4 py-2 text-sm font-medium tracking-wide text-gray-600 transition hover:bg-gray-50 hover:text-[#003d21]"
+              className="rounded-full px-4 py-2 text-sm font-medium tracking-wide text-gray-600 transition hover:bg-gray-50 hover:text-[#283C09]"
             >
               Home
             </a>
             <a
               href={INVESTOR_PORTAL_URL}
-              className="rounded-full px-4 py-2 text-sm font-medium tracking-wide text-gray-600 transition hover:bg-gray-50 hover:text-[#003d21]"
+              className="rounded-full px-4 py-2 text-sm font-medium tracking-wide text-gray-600 transition hover:bg-gray-50 hover:text-[#283C09]"
             >
               Investor Portal
             </a>
-            <span className="rounded-full bg-[var(--jungle-green-surface)] px-4 py-2 text-sm font-medium tracking-wide text-[#003d21]">
+            <span className="rounded-full bg-[var(--jungle-green-surface)] px-4 py-2 text-sm font-medium tracking-wide text-[#283C09]">
               Farmer Portal
             </span>
             <a
               href={MARKETPLACE_URL}
               target="_blank"
               rel="noopener noreferrer"
-              className="rounded-full px-4 py-2 text-sm font-medium tracking-wide text-gray-600 transition hover:bg-gray-50 hover:text-[#003d21]"
+              className="rounded-full px-4 py-2 text-sm font-medium tracking-wide text-gray-600 transition hover:bg-gray-50 hover:text-[#283C09]"
             >
               Marketplace
             </a>
@@ -330,7 +330,7 @@ export default function Home() {
                       <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-500">
                         {stat.label}
                       </p>
-                      <p className="mt-2 text-2xl font-semibold tabular-nums text-[#003d21]">
+                      <p className="mt-2 text-2xl font-semibold tabular-nums text-[#283C09]">
                         {stat.value}
                       </p>
                       <p className="mt-1 text-xs text-gray-500">{stat.hint}</p>
@@ -346,12 +346,12 @@ export default function Home() {
                   ].map((item) => (
                     <div
                       key={item.label}
-                      className="rounded-2xl border border-[#003d21]/10 bg-white px-4 py-3 shadow-sm"
+                      className="rounded-2xl border border-[#283C09]/10 bg-white px-4 py-3 shadow-sm"
                     >
                       <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-500">
                         {item.label}
                       </p>
-                      <p className="mt-1 text-lg font-semibold tabular-nums text-[#003d21]">
+                      <p className="mt-1 text-lg font-semibold tabular-nums text-[#283C09]">
                         {item.value}
                       </p>
                     </div>
@@ -548,7 +548,7 @@ export default function Home() {
                       <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-500">
                         {stat.label}
                       </p>
-                      <p className="mt-2 text-2xl font-semibold tabular-nums text-[#003d21]">
+                      <p className="mt-2 text-2xl font-semibold tabular-nums text-[#283C09]">
                         {stat.value}
                       </p>
                       <p className="mt-1 text-xs text-gray-500">{stat.hint}</p>
@@ -660,18 +660,18 @@ export default function Home() {
         <div className="mx-auto flex max-w-[1680px] flex-wrap items-center justify-between gap-3 px-4 text-sm text-gray-600 sm:px-6 lg:px-8 xl:px-10">
           <p>Project Mocha Farmer Portal</p>
           <div className="flex flex-wrap gap-4">
-            <a href={INVESTOR_PORTAL_URL} className="hover:text-[#003d21]">
+            <a href={INVESTOR_PORTAL_URL} className="hover:text-[#283C09]">
               Investor Portal
             </a>
             <a
               href={MARKETPLACE_URL}
               target="_blank"
               rel="noopener noreferrer"
-              className="hover:text-[#003d21]"
+              className="hover:text-[#283C09]"
             >
               Marketplace
             </a>
-            <a href="https://www.projectmocha.com/" className="hover:text-[#003d21]">
+            <a href="https://www.projectmocha.com/" className="hover:text-[#283C09]">
               projectmocha.com
             </a>
           </div>
@@ -695,14 +695,14 @@ export default function Home() {
               contract to spend tokens before your first payout.
             </p>
 
-            <div className="mt-4 grid grid-cols-2 gap-2 rounded-full border border-[#003d21]/15 bg-[var(--jungle-green-surface)] p-1">
+            <div className="mt-4 grid grid-cols-2 gap-2 rounded-full border border-[#283C09]/15 bg-[var(--jungle-green-surface)] p-1">
               {(["KES", "USD"] as const).map((currency) => (
                 <button
                   key={currency}
                   onClick={() => setPayoutCurrency(currency)}
                   className={`rounded-full px-3 py-2 text-sm transition ${
                     payoutCurrency === currency
-                      ? "bg-[#003d21] font-medium text-white"
+                      ? "bg-[#283C09] font-medium text-white"
                       : "text-gray-600"
                   }`}
                 >
