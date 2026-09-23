@@ -277,6 +277,18 @@ export default function Home() {
       </header>
 
       <main className="mx-auto flex w-full max-w-[1680px] flex-col gap-8 px-4 pt-[92px] pb-10 sm:px-6 lg:px-8 xl:px-10">
+        <section className="grid gap-px overflow-hidden rounded-xl border border-[var(--jungle-green-border)] bg-[var(--jungle-green-border)] sm:grid-cols-3" aria-label="Farmer portal trust indicators">
+          {[
+            ["Private account lookup", "Use the phone number connected to your farmer record."],
+            ["Recorded farm activity", "Production, marketplace, and payout events remain visible."],
+            ["Payout confirmation", "Review the amount, currency, and destination before continuing."],
+          ].map(([title, description]) => (
+            <div key={title} className="bg-white px-5 py-4">
+              <p className="text-sm font-semibold text-[#283C09]">{title}</p>
+              <p className="mt-1 text-xs leading-relaxed text-gray-500">{description}</p>
+            </div>
+          ))}
+        </section>
         <section className={cardClass}>
           <div className="border-b border-[var(--jungle-green-border)] bg-[var(--jungle-green-surface)] px-5 py-5 sm:px-6">
             <p className={labelClass}>Marketplace overview</p>
