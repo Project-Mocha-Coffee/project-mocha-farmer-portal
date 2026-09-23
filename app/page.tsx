@@ -7,6 +7,7 @@ import type { MarketplaceLiveSnapshot } from "@/lib/marketplace";
 import { MARKETPLACE_URL } from "@/lib/marketplace";
 import {
   INVESTOR_PORTAL_URL,
+  MAIN_SITE_URL,
   cardClass,
   inputClass,
   labelClass,
@@ -217,7 +218,7 @@ export default function Home() {
       <header className="fixed top-0 right-0 left-0 z-50 border-b border-[var(--jungle-green-border)] bg-white/95 shadow-sm backdrop-blur-sm">
         <div className="mx-auto flex h-[76px] max-w-[1680px] items-center justify-between gap-4 px-4 sm:px-6 lg:px-8 xl:px-10">
           <a
-            href={INVESTOR_PORTAL_URL}
+            href={MAIN_SITE_URL}
             className="relative block h-10 w-36 shrink-0 sm:h-11 sm:w-40"
             aria-label="Project Mocha home"
           >
@@ -231,6 +232,12 @@ export default function Home() {
           </a>
 
           <nav className="hidden items-center gap-1 md:flex" aria-label="Primary">
+            <a
+              href={MAIN_SITE_URL}
+              className="rounded-full px-4 py-2 text-sm font-medium tracking-wide text-gray-600 transition hover:bg-gray-50 hover:text-[#003d21]"
+            >
+              Home
+            </a>
             <a
               href={INVESTOR_PORTAL_URL}
               className="rounded-full px-4 py-2 text-sm font-medium tracking-wide text-gray-600 transition hover:bg-gray-50 hover:text-[#003d21]"

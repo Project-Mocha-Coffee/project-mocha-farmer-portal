@@ -1,4 +1,5 @@
 export const INVESTOR_PORTAL_URL = "https://portal-main.vercel.app/";
+export const MAIN_SITE_URL = "https://project-mocha-coffee.strange-gaze-6837.chatgpt.site/";
 
 export const labelClass =
   "text-[11px] font-semibold uppercase tracking-[0.2em] text-[#003d21]/70";
