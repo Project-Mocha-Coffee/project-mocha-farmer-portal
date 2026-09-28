@@ -4,7 +4,7 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "Project Mocha Farmer Portal",
   description:
-    "Track coffee sales, marketplace activity, and off-ramp payouts for Project Mocha farmers.",
+    "Register, request verification, and manage farm intelligence, production, coffee, finances, assets, receivables, and loans.",
 };
 
 export default function RootLayout({
