@@ -8,9 +8,9 @@
   --jungle-green-surface: #F7F8F4;
   --jungle-green-border: #E5E8E0;
   --charcoal: #2F201A;
-  --cream: #FFFFFF;
-  --beige: #F7F8F4;
-  --background: #FFFFFF;
+  --cream: #FFF9F2;
+  --beige: #F3EADF;
+  --background: #F6F1E9;
   --foreground: var(--charcoal);
   --font-poppins: "Poppins", ui-sans-serif, system-ui, sans-serif;
   --font-fredoka: "Fredoka", ui-sans-serif, system-ui, sans-serif;
@@ -26,9 +26,25 @@
 }
 
 body {
-  background: var(--background);
+  background:
+    radial-gradient(circle at 10% 8%, rgba(82, 41, 18, 0.11), transparent 28rem),
+    radial-gradient(circle at 88% 28%, rgba(40, 60, 9, 0.09), transparent 34rem),
+    linear-gradient(145deg, #f8f4ee 0%, #f2eadf 52%, #f7f8f4 100%);
+  background-attachment: fixed;
   color: var(--foreground);
   font-family: var(--font-poppins);
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.28;
+  background-image:
+    linear-gradient(rgba(82, 41, 18, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(82, 41, 18, 0.035) 1px, transparent 1px);
+  background-size: 3.5rem 3.5rem;
 }
 
 h1, h2, h3, h4 {
