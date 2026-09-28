@@ -1,737 +1,105 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
-import type { ActivityItem, LiveFarmerProfile } from "@/lib/elementpay";
-import type { MarketplaceLiveSnapshot } from "@/lib/marketplace";
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import type { LiveFarmerProfile } from "@/lib/elementpay";
 import { MARKETPLACE_URL } from "@/lib/marketplace";
-import {
-  INVESTOR_PORTAL_URL,
-  cardClass,
-  inputClass,
-  labelClass,
-  outlineButtonClass,
-  paymentButtonClass,
-  primaryButtonClass,
-  statCardClass,
-  surfaceClass,
-} from "@/lib/design";
+import { INVESTOR_PORTAL_URL, MAIN_SITE_URL } from "@/lib/design";
 
-const usdToKesRate = 128.2;
-const MARKETPLACE_CACHE_KEY = "pm-farmer-marketplace-live";
+type View = "overview" | "intelligence" | "production" | "coffee" | "finance" | "assets" | "verification";
+type VerificationState = "not-started" | "submitted";
 
-const readCachedMarketplace = (): MarketplaceLiveSnapshot | null => {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = sessionStorage.getItem(MARKETPLACE_CACHE_KEY);
-    if (!raw) return null;
-    return JSON.parse(raw) as MarketplaceLiveSnapshot;
-  } catch {
-    return null;
-  }
+const demoProfile: LiveFarmerProfile = {
+  phone: "+254 700 000 000", walletAddress: "0x8A1F...49C2", tokenizedTrees: 684,
+  totalCoffeeSalesUsd: 3562, totalCoffeeSalesKes: 456640, balanceUsd: 488, balanceKes: 62562,
+  marketplacePaymentsUsd: 2016, marketplacePaymentsKes: 258451,
+  activities: [
+    { id: "a1", label: "Coffee delivery recorded", amount: 148600, currency: "KES", status: "confirmed", timestamp: "2026-09-21T08:30:00Z" },
+    { id: "a2", label: "Buyer payment received", amount: 96300, currency: "KES", status: "settled", timestamp: "2026-09-16T11:15:00Z" },
+    { id: "a3", label: "Input loan repayment", amount: 18000, currency: "KES", status: "settled", timestamp: "2026-09-08T06:40:00Z" },
+  ],
+  isLive: false, lastSyncedAt: "2026-09-28T07:00:00Z",
 };
 
-const writeCachedMarketplace = (snapshot: MarketplaceLiveSnapshot) => {
-  if (typeof window === "undefined") return;
-  try {
-    sessionStorage.setItem(MARKETPLACE_CACHE_KEY, JSON.stringify(snapshot));
-  } catch {
-    // Ignore storage quota errors.
-  }
-};
+const navItems: Array<{ id: View; label: string; short: string }> = [
+  { id: "overview", label: "Overview", short: "OV" }, { id: "intelligence", label: "Farm intelligence", short: "FI" },
+  { id: "production", label: "Production", short: "PR" }, { id: "coffee", label: "Coffee records", short: "CF" },
+  { id: "finance", label: "Financial records", short: "FN" }, { id: "assets", label: "Assets & loans", short: "AL" },
+  { id: "verification", label: "Verification", short: "VR" },
+];
 
-const asCurrencyLine = (amount?: number, currency?: string) => {
-  if (amount === undefined || !currency) return "";
-  if (currency === "USD") return `$${amount.toLocaleString()}`;
-  return `${currency} ${amount.toLocaleString()}`;
-};
+const card = "rounded-2xl border border-[#522912]/12 bg-[#fffaf5]/95 shadow-[0_18px_55px_rgba(82,41,18,0.10)] backdrop-blur-sm";
+const label = "text-[11px] font-semibold uppercase tracking-[0.18em] text-[#283C09]/60";
+const input = "w-full rounded-xl border border-[#283C09]/15 bg-white px-4 py-3 text-sm outline-none transition focus:border-[#283C09] focus:ring-4 focus:ring-[#283C09]/5";
+
+function Metric({ label: title, value, note }: { label: string; value: string; note: string }) {
+  return <article className={`${card} p-5`}><p className={label}>{title}</p><p className="mt-3 font-[family-name:var(--font-fredoka)] text-3xl font-semibold tabular-nums text-[#283C09]">{value}</p><p className="mt-1 text-xs text-gray-500">{note}</p></article>;
+}
+
+function RecordRow({ title, value, status }: { title: string; value: string; status?: string }) {
+  return <div className="grid gap-1 border-b border-[#283C09]/10 py-3 last:border-0 sm:grid-cols-[1fr_auto] sm:items-center"><span className="text-sm text-gray-600">{title}</span><span className="text-sm font-semibold text-[#2F201A]">{value}{status ? <em className="ml-2 rounded-full bg-[#eef4df] px-2 py-1 text-[10px] not-italic text-[#283C09]">{status}</em> : null}</span></div>;
+}
 
 export default function Home() {
-  const [phone, setPhone] = useState("+254");
-  const [profile, setProfile] = useState<LiveFarmerProfile | null>(null);
-  const [marketplace, setMarketplace] = useState<MarketplaceLiveSnapshot | null>(() =>
-    readCachedMarketplace()
-  );
-  const [isLoading, setIsLoading] = useState(false);
-  const [isMarketplaceLoading, setIsMarketplaceLoading] = useState(
-    () => !readCachedMarketplace()
-  );
-  const [marketplaceError, setMarketplaceError] = useState("");
-  const [isSubmittingPayout, setIsSubmittingPayout] = useState(false);
-  const [error, setError] = useState("");
-  const [showPayoutModal, setShowPayoutModal] = useState(false);
-  const [payoutCurrency, setPayoutCurrency] = useState<"KES" | "USD">("KES");
-  const [payoutAmount, setPayoutAmount] = useState("0");
-  const [farmerPayouts, setFarmerPayouts] = useState<ActivityItem[]>([]);
+  const [phone, setPhone] = useState("+254"); const [profile, setProfile] = useState<LiveFarmerProfile | null>(null);
+  const [isDemo, setIsDemo] = useState(false); const [view, setView] = useState<View>("overview");
+  const [isLoading, setIsLoading] = useState(false); const [error, setError] = useState("");
+  const [onboardingMode, setOnboardingMode] = useState<"access" | "register">("access");
+  const [registrationComplete, setRegistrationComplete] = useState(false);
+  const [verificationState, setVerificationState] = useState<VerificationState>("not-started");
+  const [showVerificationForm, setShowVerificationForm] = useState(false);
+  const verificationProgress = verificationState === "submitted" ? 35 : 12;
+  const title = useMemo(() => navItems.find((item) => item.id === view)?.label ?? "Overview", [view]);
 
-  const offRampUrl = useMemo(() => {
-    if (!profile) return "https://dapp.elementpay.net/";
-    const q = new URLSearchParams({
-      phone: profile.phone,
-      wallet: profile.walletAddress,
-      amount: payoutAmount,
-      currency: payoutCurrency,
-    });
-    return `https://dapp.elementpay.net/?${q.toString()}`;
-  }, [profile, payoutAmount, payoutCurrency]);
-
-  useEffect(() => {
-    let cancelled = false;
-    const hadCachedSnapshot = Boolean(readCachedMarketplace());
-
-    const fetchMarketplace = async (showLoading: boolean) => {
-      if (showLoading) {
-        setIsMarketplaceLoading(true);
-      }
-      setMarketplaceError("");
-
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 20_000);
-
-      try {
-        const response = await fetch("/api/marketplace-live", {
-          signal: controller.signal,
-          cache: "no-store",
-        });
-        const data = (await response.json()) as MarketplaceLiveSnapshot & {
-          error?: string;
-        };
-
-        if (!response.ok) {
-          throw new Error(data.error || "Failed to load marketplace data");
-        }
-
-        if (!cancelled) {
-          setMarketplace(data);
-          writeCachedMarketplace(data);
-          setMarketplaceError(data.degraded ? data.loadError || "" : "");
-        }
-      } catch (fetchError) {
-        if (!cancelled) {
-          const message =
-            fetchError instanceof Error
-              ? fetchError.name === "AbortError"
-                ? "Marketplace data timed out. Retrying automatically..."
-                : fetchError.message
-              : "Failed to load marketplace data";
-          setMarketplaceError(message);
-        }
-      } finally {
-        clearTimeout(timeout);
-        if (!cancelled) {
-          setIsMarketplaceLoading(false);
-        }
-      }
-    };
-
-    void fetchMarketplace(!hadCachedSnapshot);
-    const interval = setInterval(() => {
-      void fetchMarketplace(false);
-    }, 30000);
-
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, []);
-
-  const loadProfile = async (phoneNumber: string) => {
-    setIsLoading(true);
-    setError("");
+  const openDemo = () => { setProfile(demoProfile); setIsDemo(true); setView("overview"); setError(""); };
+  const loadProfile = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault(); setIsLoading(true); setError("");
     try {
-      const response = await fetch(
-        `/api/farmer-profile?phone=${encodeURIComponent(phoneNumber)}`
-      );
+      const response = await fetch(`/api/farmer-profile?phone=${encodeURIComponent(phone)}`);
       const data = (await response.json()) as LiveFarmerProfile & { error?: string };
-      if (!response.ok) {
-        throw new Error(data.error || "Failed to load profile");
-      }
-      setProfile(data);
-      setFarmerPayouts(
-        (data.activities ?? []).filter((activity) => activity.status === "settled")
-      );
-    } catch (loadError) {
-      setError(
-        loadError instanceof Error
-          ? loadError.message
-          : "Could not connect to ElementPay live services."
-      );
-    } finally {
-      setIsLoading(false);
-    }
+      if (!response.ok) throw new Error(data.error || "Farmer record not found.");
+      setProfile(data); setIsDemo(false); setView("overview");
+    } catch (loadError) { setError(loadError instanceof Error ? loadError.message : "Could not open this farmer record."); }
+    finally { setIsLoading(false); }
   };
-
-  const onLogin = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    await loadProfile(phone);
-  };
+  const registerFarmer = (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); setRegistrationComplete(true); };
+  const submitVerification = (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); setVerificationState("submitted"); setShowVerificationForm(false); setView("verification"); };
 
   useEffect(() => {
-    if (!profile?.phone) return;
-    const interval = setInterval(() => {
-      void loadProfile(profile.phone);
-    }, 20000);
-    return () => clearInterval(interval);
-  }, [profile?.phone]);
+    const modelContext = (document as Document & { modelContext?: { registerTool?: (tool: Record<string, unknown>, options?: { signal?: AbortSignal }) => void | Promise<void> } }).modelContext;
+    if (!modelContext?.registerTool) return; const lifecycle = new AbortController();
+    const register = async () => {
+      await modelContext.registerTool?.({ name: "open_farmer_record_demo", title: "Open farmer record demo", description: "Open the representative Project Mocha farmer record and show its overview.", inputSchema: { type: "object", properties: {}, additionalProperties: false }, annotations: { readOnlyHint: true, untrustedContentHint: false }, execute: () => { openDemo(); return { status: "opened", record: "representative-farmer-record" }; } }, { signal: lifecycle.signal });
+      await modelContext.registerTool?.({ name: "navigate_farmer_record", title: "Navigate farmer record", description: "Open a section of the visible farmer record.", inputSchema: { type: "object", properties: { section: { type: "string", enum: navItems.map((item) => item.id) } }, required: ["section"], additionalProperties: false }, annotations: { readOnlyHint: true, untrustedContentHint: false }, execute: (inputValue: unknown) => { const section = (inputValue as { section?: View })?.section; if (!section || !navItems.some((item) => item.id === section)) throw new Error("Unknown farmer record section."); if (!profile) openDemo(); setView(section); return { status: "opened", section }; } }, { signal: lifecycle.signal });
+    };
+    void register().catch(() => undefined); return () => lifecycle.abort();
+  }, [profile]);
 
-  const onLaunchPayout = async () => {
-    if (!profile) return;
-    const amount = Number(payoutAmount);
-    if (!Number.isFinite(amount) || amount <= 0) {
-      setError("Enter a valid payout amount.");
-      return;
-    }
-
-    setIsSubmittingPayout(true);
-    setError("");
-    try {
-      const response = await fetch("/api/offramp-session", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          phone: profile.phone,
-          walletAddress: profile.walletAddress,
-          amount,
-          currency: payoutCurrency,
-        }),
-      });
-      const data = (await response.json()) as { launchUrl?: string; error?: string };
-      if (!response.ok || !data.launchUrl) {
-        throw new Error(data.error || "Unable to initialize off-ramp session.");
-      }
-      window.open(data.launchUrl, "_blank", "noopener,noreferrer");
-    } catch (sessionError) {
-      setError(
-        sessionError instanceof Error
-          ? sessionError.message
-          : "Off-ramp connection failed."
-      );
-      window.open(offRampUrl, "_blank", "noopener,noreferrer");
-    } finally {
-      setIsSubmittingPayout(false);
-    }
-  };
-
-  return (
-    <div className="min-h-screen bg-[#fafafa] text-[var(--charcoal)]">
-      <header className="fixed top-0 right-0 left-0 z-50 border-b border-[var(--jungle-green-border)] bg-white/95 shadow-sm backdrop-blur-sm">
-        <div className="mx-auto flex h-[76px] max-w-[1680px] items-center justify-between gap-4 px-4 sm:px-6 lg:px-8 xl:px-10">
-          <a
-            href={INVESTOR_PORTAL_URL}
-            className="relative block h-10 w-36 shrink-0 sm:h-11 sm:w-40"
-            aria-label="Project Mocha home"
-          >
-            <Image
-              src="/Brand/project mocha_brown.svg"
-              alt="Project Mocha"
-              fill
-              className="object-contain object-left"
-              priority
-            />
-          </a>
-
-          <nav className="hidden items-center gap-1 md:flex" aria-label="Primary">
-            <a
-              href={INVESTOR_PORTAL_URL}
-              className="rounded-full px-4 py-2 text-sm font-medium tracking-wide text-gray-600 transition hover:bg-gray-50 hover:text-[#202d07]"
-            >
-              Investor Portal
-            </a>
-            <span className="rounded-full bg-[var(--jungle-green-surface)] px-4 py-2 text-sm font-medium tracking-wide text-[#202d07]">
-              Farmer Portal
-            </span>
-            <a
-              href={MARKETPLACE_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="rounded-full px-4 py-2 text-sm font-medium tracking-wide text-gray-600 transition hover:bg-gray-50 hover:text-[#202d07]"
-            >
-              Marketplace
-            </a>
-          </nav>
-
-          <a
-            href={MARKETPLACE_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className={`${primaryButtonClass} px-4 py-2 text-sm md:hidden`}
-          >
-            Marketplace
-          </a>
-          <a
-            href={MARKETPLACE_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className={`${primaryButtonClass} hidden px-5 py-2.5 text-sm md:inline-flex`}
-          >
-            Marketplace Live
-          </a>
-        </div>
-      </header>
-
-      <main className="mx-auto flex w-full max-w-[1680px] flex-col gap-8 px-4 pt-[92px] pb-10 sm:px-6 lg:px-8 xl:px-10">
-        <section className={cardClass}>
-          <div className="border-b border-[var(--jungle-green-border)] bg-[var(--jungle-green-surface)] px-5 py-5 sm:px-6">
-            <p className={labelClass}>Marketplace overview</p>
-            <h1 className="mt-1 text-2xl font-bold text-[var(--charcoal)] sm:text-3xl">
-              Live marketplace activity
-            </h1>
-            <p className="mt-2 text-sm text-gray-600">
-              Metrics sourced from confirmed marketplace records and coffee batch inventory.
-            </p>
-          </div>
-
-          <div className="space-y-6 p-5 sm:p-6">
-            {isMarketplaceLoading && !marketplace ? (
-              <p className="text-sm text-gray-500">Loading marketplace data...</p>
-            ) : marketplace ? (
-              <>
-                {marketplaceError ? (
-                  <p className="rounded-xl bg-[#fff1e6] px-3 py-2 text-xs text-[#522912]">
-                    {marketplaceError}
-                  </p>
-                ) : null}
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-                  {[
-                    {
-                      label: "Total Coffee Sold",
-                      value: `${marketplace.totalCoffeeSoldKg.toLocaleString()} kg`,
-                      hint: marketplace.hasOrderData ? "Paid orders" : "Allocated inventory",
-                    },
-                    {
-                      label: "Marketplace Revenue",
-                      value: `KES ${marketplace.totalRevenueKes.toLocaleString()}`,
-                      hint: "Confirmed payments only",
-                    },
-                    {
-                      label: "Active Coffee Batches",
-                      value: marketplace.activeCoffeeBatches.toLocaleString(),
-                      hint: "Available or allocated",
-                    },
-                    {
-                      label: "Active Merchants",
-                      value: marketplace.activeMerchants.toLocaleString(),
-                      hint: "Selling on marketplace",
-                    },
-                    {
-                      label: "Coffee Under Management",
-                      value: `${marketplace.coffeeUnderManagementKg.toLocaleString()} kg`,
-                      hint: `${marketplace.coffeeAllocatedKg.toLocaleString()} kg allocated`,
-                    },
-                  ].map((stat) => (
-                    <article key={stat.label} className={statCardClass}>
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-500">
-                        {stat.label}
-                      </p>
-                      <p className="mt-2 text-2xl font-semibold tabular-nums text-[#202d07]">
-                        {stat.value}
-                      </p>
-                      <p className="mt-1 text-xs text-gray-500">{stat.hint}</p>
-                    </article>
-                  ))}
-                </div>
-
-                <div className="grid gap-3 sm:grid-cols-3">
-                  {[
-                    { label: "Total Customers", value: marketplace.totalCustomers },
-                    { label: "Returning Customers", value: marketplace.returningCustomers },
-                    { label: "Orders This Week", value: marketplace.ordersThisWeek },
-                  ].map((item) => (
-                    <div
-                      key={item.label}
-                      className="rounded-2xl border border-[#202d07]/10 bg-white px-4 py-3 shadow-sm"
-                    >
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-500">
-                        {item.label}
-                      </p>
-                      <p className="mt-1 text-lg font-semibold tabular-nums text-[#202d07]">
-                        {item.value}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-
-                <div>
-                  <p className={labelClass}>Recent marketplace activity</p>
-                  <div className="mt-3 space-y-3 text-sm">
-                    {marketplace.activities.length > 0 ? (
-                      marketplace.activities.map((activity) => (
-                        <div key={activity.id} className={`${surfaceClass} p-3`}>
-                          <p className="text-[var(--charcoal)]">{activity.message}</p>
-                          <p className="mt-1 text-xs text-gray-500">
-                            {new Date(activity.timestamp).toLocaleString()}
-                          </p>
-                        </div>
-                      ))
-                    ) : (
-                      <div className={`${surfaceClass} p-3 text-gray-500`}>
-                        No marketplace activity recorded yet.
-                      </div>
-                    )}
-                  </div>
-                  <p className="mt-3 text-xs text-gray-500">
-                    Last synced: {new Date(marketplace.lastSyncedAt).toLocaleString()}
-                  </p>
-                </div>
-              </>
-            ) : (
-              <div className="space-y-3">
-                <p className="text-sm text-[#522912]">
-                  {marketplaceError ||
-                    "Marketplace data is temporarily unavailable. You can still browse the live marketplace."}
-                </p>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsMarketplaceLoading(true);
-                    setMarketplaceError("");
-                    void fetch("/api/marketplace-live", { cache: "no-store" })
-                      .then(async (response) => {
-                        const data = (await response.json()) as MarketplaceLiveSnapshot & {
-                          error?: string;
-                        };
-                        if (!response.ok) {
-                          throw new Error(data.error || "Failed to load marketplace data");
-                        }
-                        setMarketplace(data);
-                        writeCachedMarketplace(data);
-                      })
-                      .catch((retryError) => {
-                        setMarketplaceError(
-                          retryError instanceof Error
-                            ? retryError.message
-                            : "Failed to load marketplace data"
-                        );
-                      })
-                      .finally(() => setIsMarketplaceLoading(false));
-                  }}
-                  className={`${outlineButtonClass} px-4 py-2 text-sm`}
-                >
-                  Retry marketplace sync
-                </button>
-                <a
-                  href={MARKETPLACE_URL}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className={`${primaryButtonClass} inline-flex px-4 py-2 text-sm`}
-                >
-                  Open live marketplace
-                </a>
-              </div>
-            )}
-          </div>
-        </section>
-
-        {!profile ? (
-          <section className="grid gap-4 lg:grid-cols-[1.1fr_1fr]">
-            <div className={cardClass}>
-              <div className="border-b border-[var(--jungle-green-border)] bg-[var(--jungle-green-surface)] px-5 py-5 sm:px-6">
-                <p className={labelClass}>Mobile-first onboarding</p>
-                <h2 className="mt-1 text-2xl font-bold text-[var(--charcoal)] sm:text-3xl">
-                  Track coffee income and off-ramp payouts in minutes.
-                </h2>
-              </div>
-              <div className="space-y-4 p-5 sm:p-6">
-                <p className="text-sm text-gray-600">
-                  Sign in with your phone number, map your wallet, and monitor payments in both
-                  KES and USD.
-                </p>
-
-                <form className="space-y-3" onSubmit={onLogin}>
-                  <label className="block text-sm font-medium text-[var(--charcoal)]" htmlFor="phone">
-                    Phone number
-                  </label>
-                  <input
-                    id="phone"
-                    type="tel"
-                    required
-                    value={phone}
-                    onChange={(event) => setPhone(event.target.value)}
-                    className={inputClass}
-                    placeholder="+254 7XX XXX XXX"
-                  />
-                  <button
-                    type="submit"
-                    disabled={isLoading}
-                    className={`${primaryButtonClass} w-full px-4 py-3.5 text-sm disabled:opacity-60`}
-                  >
-                    {isLoading ? "Connecting..." : "Continue to dashboard"}
-                  </button>
-                </form>
-                {error ? (
-                  <p className="rounded-xl bg-[#fff1e6] px-3 py-2 text-xs text-[#522912]">
-                    {error}
-                  </p>
-                ) : null}
-              </div>
-            </div>
-
-            <div className={`${cardClass} p-5 sm:p-6`}>
-              <p className="text-sm font-medium text-gray-600">What this dashboard includes</p>
-              <ul className="mt-4 space-y-3 text-sm text-[var(--charcoal)]">
-                <li>Live marketplace overview and activity feed</li>
-                <li>Farmer wallet mapping via ElementPay</li>
-                <li>Confirmed marketplace payment visibility</li>
-                <li>Coffee batch and allocation tracking</li>
-                <li>ElementPay off-ramp launch flow</li>
-              </ul>
-              <a
-                href={MARKETPLACE_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-                className={`${outlineButtonClass} mt-6 inline-flex px-4 py-3 text-sm`}
-              >
-                Browse live marketplace
-              </a>
-            </div>
-          </section>
-        ) : (
-          <>
-            <section className={cardClass}>
-              <div className="border-b border-[var(--jungle-green-border)] bg-[var(--jungle-green-surface)] px-5 py-5 sm:px-6">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <p className={labelClass}>Your wallet</p>
-                    <h2 className="mt-1 text-2xl font-bold text-[var(--charcoal)] sm:text-3xl">
-                      Balances & coffee income
-                    </h2>
-                    <p className="mt-2 text-sm text-gray-600">
-                      Live data from ElementPay for {profile.phone}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setProfile(null);
-                      setFarmerPayouts([]);
-                      setError("");
-                    }}
-                    className={`${outlineButtonClass} px-4 py-2 text-sm`}
-                  >
-                    Sign out
-                  </button>
-                </div>
-              </div>
-
-              <div className="space-y-6 p-5 sm:p-6">
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                  {[
-                    {
-                      label: "KES Balance",
-                      value: `KES ${profile.balanceKes.toLocaleString()}`,
-                      hint: "Available wallet balance",
-                    },
-                    {
-                      label: "USD Balance",
-                      value: `$${profile.balanceUsd.toLocaleString()}`,
-                      hint: "Available wallet balance",
-                    },
-                    {
-                      label: "Coffee Sales",
-                      value: `KES ${profile.totalCoffeeSalesKes.toLocaleString()}`,
-                      hint: `$${profile.totalCoffeeSalesUsd.toLocaleString()} USD equivalent`,
-                    },
-                    {
-                      label: "Marketplace Payments",
-                      value: `KES ${profile.marketplacePaymentsKes.toLocaleString()}`,
-                      hint: `$${profile.marketplacePaymentsUsd.toLocaleString()} USD received`,
-                    },
-                  ].map((stat) => (
-                    <article key={stat.label} className={statCardClass}>
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-500">
-                        {stat.label}
-                      </p>
-                      <p className="mt-2 text-2xl font-semibold tabular-nums text-[#202d07]">
-                        {stat.value}
-                      </p>
-                      <p className="mt-1 text-xs text-gray-500">{stat.hint}</p>
-                    </article>
-                  ))}
-                </div>
-
-                {profile.activities.length > 0 ? (
-                  <div>
-                    <p className={labelClass}>Recent wallet activity</p>
-                    <div className="mt-3 space-y-3 text-sm">
-                      {profile.activities.slice(0, 6).map((activity) => (
-                        <div key={activity.id} className={`${surfaceClass} p-3`}>
-                          <p className="text-[var(--charcoal)]">
-                            {activity.label || "Wallet transaction"}
-                          </p>
-                          <p className="mt-1 text-xs text-gray-500">
-                            {[
-                              asCurrencyLine(activity.amount, activity.currency),
-                              activity.status,
-                              activity.timestamp
-                                ? new Date(activity.timestamp).toLocaleString()
-                                : "",
-                            ]
-                              .filter(Boolean)
-                              .join(" · ")}
-                          </p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-              </div>
-            </section>
-
-            <section className="grid gap-4 lg:grid-cols-[1.1fr_1fr]">
-            <div className={cardClass}>
-              <div className="border-b border-[var(--jungle-green-border)] bg-[var(--jungle-green-surface)] px-5 py-5 sm:px-6">
-                <p className={labelClass}>Farmer profile</p>
-                <h2 className="mt-1 text-lg font-bold text-[var(--charcoal)]">Wallet & payouts</h2>
-                <p className="mt-1 text-xs text-gray-500">
-                  Last synced: {new Date(profile.lastSyncedAt).toLocaleString()}
-                </p>
-              </div>
-              <div className="space-y-4 p-5 sm:p-6">
-                <div className={`${surfaceClass} p-4 text-sm`}>
-                  <p>
-                    <span className="font-medium">Phone:</span> {profile.phone}
-                  </p>
-                  <p className="mt-2 break-all font-mono text-xs">
-                    <span className="font-medium font-sans">Wallet:</span> {profile.walletAddress}
-                  </p>
-                </div>
-                <button
-                  className={`${outlineButtonClass} w-full px-4 py-3 text-sm`}
-                  onClick={() => setShowPayoutModal(true)}
-                >
-                  Open payout modal
-                </button>
-                <div className="space-y-2 text-sm">
-                  <p className={labelClass}>Settled payouts</p>
-                  {farmerPayouts.length > 0 ? (
-                    farmerPayouts.map((activity) => (
-                      <div key={activity.id} className={`${surfaceClass} p-3`}>
-                        <p>Off-ramp payout settled</p>
-                        <p className="mt-1 text-xs text-gray-500">
-                          {[
-                            asCurrencyLine(activity.amount, activity.currency),
-                            activity.timestamp
-                              ? new Date(activity.timestamp).toLocaleString()
-                              : "",
-                          ]
-                            .filter(Boolean)
-                            .join(" · ")}
-                        </p>
-                      </div>
-                    ))
-                  ) : (
-                    <div className={`${surfaceClass} p-3 text-gray-500`}>
-                      No settled payouts yet for this wallet.
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            <div className={`${cardClass} p-5 sm:p-6`}>
-              <p className={labelClass}>Marketplace connection</p>
-              <h2 className="mt-2 text-lg font-bold text-[var(--charcoal)]">Your marketplace link</h2>
-              <p className="mt-3 text-sm text-gray-600">
-                Marketplace sales, merchant activity, and coffee batch allocations are tracked on
-                the live Project Mocha marketplace.
-              </p>
-              <a
-                href={MARKETPLACE_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-                className={`${primaryButtonClass} mt-4 inline-flex w-full items-center justify-center px-4 py-3 text-sm`}
-              >
-                Go to live marketplace
-              </a>
-            </div>
-          </section>
-          </>
-        )}
-      </main>
-
-      <footer className="border-t border-[var(--jungle-green-border)] bg-white py-6">
-        <div className="mx-auto flex max-w-[1680px] flex-wrap items-center justify-between gap-3 px-4 text-sm text-gray-600 sm:px-6 lg:px-8 xl:px-10">
-          <p>Project Mocha Farmer Portal</p>
-          <div className="flex flex-wrap gap-4">
-            <a href={INVESTOR_PORTAL_URL} className="hover:text-[#202d07]">
-              Investor Portal
-            </a>
-            <a
-              href={MARKETPLACE_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="hover:text-[#202d07]"
-            >
-              Marketplace
-            </a>
-            <a href="https://www.projectmocha.com/" className="hover:text-[#202d07]">
-              projectmocha.com
-            </a>
-          </div>
-        </div>
-      </footer>
-
-      {showPayoutModal && profile ? (
-        <div className="fixed inset-0 z-50 flex items-end bg-black/35 p-3 sm:items-center sm:justify-center">
-          <div className="w-full max-w-md rounded-2xl border border-[var(--jungle-green-border)] bg-white p-5 shadow-2xl">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-bold text-[var(--charcoal)]">Payout via ElementPay</h3>
-              <button
-                onClick={() => setShowPayoutModal(false)}
-                className={`${outlineButtonClass} px-3 py-1 text-sm`}
-              >
-                Close
-              </button>
-            </div>
-            <p className="mt-2 text-sm text-gray-600">
-              Select amount and launch secure off-ramp flow. Approve the ElementPay
-              contract to spend tokens before your first payout.
-            </p>
-
-            <div className="mt-4 grid grid-cols-2 gap-2 rounded-full border border-[#202d07]/15 bg-[var(--jungle-green-surface)] p-1">
-              {(["KES", "USD"] as const).map((currency) => (
-                <button
-                  key={currency}
-                  onClick={() => setPayoutCurrency(currency)}
-                  className={`rounded-full px-3 py-2 text-sm transition ${
-                    payoutCurrency === currency
-                      ? "bg-[#202d07] font-medium text-white"
-                      : "text-gray-600"
-                  }`}
-                >
-                  {currency}
-                </button>
-              ))}
-            </div>
-
-            <label htmlFor="amount" className="mt-4 block text-sm font-medium">
-              Amount
-            </label>
-            <input
-              id="amount"
-              inputMode="decimal"
-              value={payoutAmount}
-              onChange={(event) => setPayoutAmount(event.target.value)}
-              className={`${inputClass} mt-2`}
-            />
-            <div className={`${surfaceClass} mt-3 p-3 text-xs text-gray-600`}>
-              Rate: 1 USD = {usdToKesRate} KES
-            </div>
-            {error ? (
-              <p className="mt-3 rounded-xl bg-[#fff1e6] px-3 py-2 text-xs text-[#522912]">
-                {error}
-              </p>
-            ) : null}
-            <button
-              onClick={onLaunchPayout}
-              disabled={isSubmittingPayout}
-              className={`${paymentButtonClass} mt-4 block w-full px-4 py-3.5 text-center text-sm disabled:opacity-60`}
-            >
-              {isSubmittingPayout ? "Starting secure session..." : "Continue to ElementPay"}
-            </button>
-          </div>
-        </div>
-      ) : null}
-    </div>
-  );
+  return <div className="relative min-h-screen text-[#2F201A]">
+    <header className="sticky top-0 z-40 border-b border-white/10 bg-[#1e2d07] text-white shadow-lg"><div className="mx-auto flex min-h-[76px] max-w-[1680px] items-center justify-between gap-4 px-4 sm:px-6 lg:px-8"><a href={MAIN_SITE_URL} className="flex items-center gap-3" aria-label="Project Mocha home"><span className="relative block h-10 w-32"><Image src="/Brand/project mocha_brown.svg" alt="Project Mocha" fill className="brightness-0 invert object-contain object-left" priority /></span><span className="hidden h-8 w-px bg-white/20 sm:block" /><span className="hidden sm:block"><b className="block font-[family-name:var(--font-fredoka)] text-lg">Farmer Portal</b><small className="block text-[10px] uppercase tracking-[0.16em] text-white/45">Mocha Exchange</small></span></a><nav className="flex items-center gap-1 text-xs font-semibold sm:text-sm" aria-label="Project Mocha portals"><a href={MARKETPLACE_URL} className="rounded-full px-3 py-2 text-white/65 hover:text-white">Buyer Portal</a><a href={INVESTOR_PORTAL_URL} className="rounded-full px-3 py-2 text-white/65 hover:text-white">Investor Portal</a>{profile ? <button onClick={() => { setProfile(null); setView("overview"); }} className="rounded-full border border-white/20 px-3 py-2">Sign out</button> : null}</nav></div></header>
+    {!profile ? <Onboarding phone={phone} setPhone={setPhone} mode={onboardingMode} setMode={setOnboardingMode} loading={isLoading} error={error} registrationComplete={registrationComplete} onAccess={loadProfile} onRegister={registerFarmer} onDemo={openDemo} /> : <div className="mx-auto grid max-w-[1680px] gap-0 lg:grid-cols-[250px_1fr]"><Sidebar view={view} setView={setView} isDemo={isDemo} /><main className="min-w-0 p-4 sm:p-6 lg:p-8"><div className="flex flex-wrap items-end justify-between gap-4"><div><p className={label}>Farmer portal / {title}</p><h1 className="mt-1 font-[family-name:var(--font-fredoka)] text-4xl font-semibold text-[#283C09]">{view === "overview" ? "Your farm at a glance" : title}</h1></div><button onClick={() => { setView("verification"); setShowVerificationForm(true); }} className="rounded-xl bg-[#522912] px-4 py-3 text-sm font-semibold text-white">Apply for verification</button></div>{isDemo ? <div className="mt-5 rounded-xl border border-[#d7dfc5] bg-[#f2f6e8] px-4 py-3 text-xs text-[#283C09]">Representative data demonstrates the complete farmer record. Live records appear after identity and farm verification.</div> : null}{view === "overview" ? <Overview profile={profile} setView={setView} verificationProgress={verificationProgress} /> : null}{view === "intelligence" ? <FarmIntelligence /> : null}{view === "production" ? <Production /> : null}{view === "coffee" ? <CoffeeRecords /> : null}{view === "finance" ? <Finance profile={profile} /> : null}{view === "assets" ? <AssetsAndLoans /> : null}{view === "verification" ? <Verification state={verificationState} progress={verificationProgress} onApply={() => setShowVerificationForm(true)} /> : null}</main></div>}
+    {showVerificationForm ? <VerificationModal onClose={() => setShowVerificationForm(false)} onSubmit={submitVerification} /> : null}
+  </div>;
 }
+
+function Onboarding({ phone, setPhone, mode, setMode, loading, error, registrationComplete, onAccess, onRegister, onDemo }: { phone: string; setPhone: (v: string) => void; mode: "access" | "register"; setMode: (v: "access" | "register") => void; loading: boolean; error: string; registrationComplete: boolean; onAccess: (e: FormEvent<HTMLFormElement>) => void; onRegister: (e: FormEvent<HTMLFormElement>) => void; onDemo: () => void }) {
+  return <main className="relative mx-auto grid min-h-[calc(100vh-76px)] max-w-[1500px] items-center gap-10 px-4 py-10 sm:px-6 lg:grid-cols-[1fr_0.92fr] lg:px-8"><section className="max-w-2xl"><p className={label}>Your farm. One complete record.</p><h1 className="mt-4 font-[family-name:var(--font-fredoka)] text-5xl font-semibold leading-[0.96] text-[#283C09] sm:text-6xl">Know what is happening on your farm—and what it is worth.</h1><p className="mt-6 max-w-xl text-lg leading-relaxed text-[#655a52]">Register once, request farm verification, and keep production intelligence, coffee, assets, cash, receivables and loans together.</p><div className="mt-8 grid max-w-xl grid-cols-2 gap-px overflow-hidden rounded-2xl border border-[#522912]/15 bg-[#522912]/15 shadow-[0_18px_45px_rgba(82,41,18,0.10)] sm:grid-cols-4">{[["01","Register"],["02","Verify"],["03","Operate"],["04","Get paid"]].map(([number, text]) => <div key={number} className="bg-[#fffaf5]/95 p-4"><span className="text-xs font-semibold text-[#522912]">{number}</span><b className="mt-5 block text-sm text-[#283C09]">{text}</b></div>)}</div></section><section className={`${card} overflow-hidden`}><div className="grid grid-cols-2 border-b border-[#522912]/10 bg-[#efe4d7] p-1"><button onClick={() => setMode("access")} className={`rounded-xl px-4 py-3 text-sm font-semibold ${mode === "access" ? "bg-[#283C09] text-white" : "text-[#655a52]"}`}>Open my record</button><button onClick={() => setMode("register")} className={`rounded-xl px-4 py-3 text-sm font-semibold ${mode === "register" ? "bg-[#283C09] text-white" : "text-[#655a52]"}`}>Register</button></div><div className="p-6 sm:p-8">{mode === "access" ? <><p className={label}>Farmer access</p><h2 className="mt-2 font-[family-name:var(--font-fredoka)] text-3xl font-semibold">Open your farm record</h2><form className="mt-6 space-y-4" onSubmit={onAccess}><label className="block text-sm font-semibold" htmlFor="phone">Registered phone number</label><input id="phone" type="tel" required value={phone} onChange={(event) => setPhone(event.target.value)} className={input} placeholder="+254 7XX XXX XXX" /><button disabled={loading} className="w-full rounded-xl bg-[#283C09] px-4 py-3.5 text-sm font-semibold text-white disabled:opacity-60">{loading ? "Opening record…" : "Continue securely"}</button></form>{error ? <p className="mt-3 rounded-xl bg-[#fff2e9] p-3 text-xs text-[#522912]">{error}</p> : null}<button onClick={onDemo} className="mt-3 w-full rounded-xl border border-[#522912]/20 bg-[#f7eee5] px-4 py-3 text-sm font-semibold text-[#522912]">View representative record</button></> : registrationComplete ? <div className="py-6 text-center"><span className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-[#283C09] text-2xl text-white">✓</span><h2 className="mt-5 font-[family-name:var(--font-fredoka)] text-3xl font-semibold">Profile started</h2><p className="mt-2 text-sm text-gray-600">Your registration reference is <b>PM-FR-260928</b>. A field coordinator can now confirm your details and help you apply for verification.</p><button onClick={onDemo} className="mt-6 rounded-xl bg-[#283C09] px-5 py-3 text-sm font-semibold text-white">Preview the farmer record</button></div> : <><p className={label}>New farmer</p><h2 className="mt-2 font-[family-name:var(--font-fredoka)] text-3xl font-semibold">Start your farmer profile</h2><form className="mt-6 grid gap-4" onSubmit={onRegister}><div><label className="mb-2 block text-sm font-semibold" htmlFor="name">Full name</label><input id="name" name="name" required className={input} /></div><div><label className="mb-2 block text-sm font-semibold" htmlFor="register-phone">Phone number</label><input id="register-phone" name="phone" type="tel" required className={input} placeholder="+254 7XX XXX XXX" /></div><div className="grid gap-4 sm:grid-cols-2"><div><label className="mb-2 block text-sm font-semibold" htmlFor="county">County</label><input id="county" name="county" required className={input} /></div><div><label className="mb-2 block text-sm font-semibold" htmlFor="cooperative">Cooperative</label><input id="cooperative" name="cooperative" className={input} /></div></div><button className="rounded-xl bg-[#283C09] px-4 py-3.5 text-sm font-semibold text-white">Create farmer profile</button></form></>}</div></section></main>;
+}
+
+function Sidebar({ view, setView, isDemo }: { view: View; setView: (v: View) => void; isDemo: boolean }) { return <aside className="min-w-0 max-w-full border-r border-[#522912]/12 bg-[#efe4d7]/75 p-4 backdrop-blur-sm lg:min-h-[calc(100vh-76px)] lg:p-5"><div className="rounded-2xl border border-[#522912]/10 bg-[#fffaf5]/90 p-4 shadow-sm"><p className={label}>{isDemo ? "Representative record" : "Farmer record"}</p><h2 className="mt-2 font-[family-name:var(--font-fredoka)] text-xl font-semibold">Grace Wanjiku</h2><p className="mt-1 text-xs text-gray-500">PM-FR-00482 · Nyeri County</p><div className="mt-4 flex items-center gap-2 text-xs font-semibold text-[#283C09]"><span className="h-2 w-2 rounded-full bg-[#8fb339]" />Verification in progress</div></div><nav className="mt-4 flex w-full max-w-full gap-2 overflow-x-auto pb-2 lg:grid" aria-label="Farmer record sections">{navItems.map((item) => <button key={item.id} onClick={() => setView(item.id)} className={`flex min-w-max items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition ${view === item.id ? "bg-[#283C09] font-semibold text-white shadow-md" : "text-[#655a52] hover:bg-[#fffaf5]"}`}><span className={`grid h-7 w-7 place-items-center rounded-lg text-[10px] ${view === item.id ? "bg-white/12" : "bg-[#f7eee5] text-[#522912]"}`}>{item.short}</span>{item.label}</button>)}</nav></aside>; }
+
+function Overview({ profile, setView, verificationProgress }: { profile: LiveFarmerProfile; setView: (view: View) => void; verificationProgress: number }) { return <div className="mt-6 space-y-5"><section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><Metric label="Coffee recorded" value="2,480 kg" note="Current season cherry equivalent" /><Metric label="Receivables" value="KES 146,800" note="Confirmed, awaiting settlement" /><Metric label="Available cash" value={`KES ${profile.balanceKes.toLocaleString()}`} note="Connected wallet balance" /><Metric label="Outstanding loans" value="KES 82,000" note="Input and equipment facilities" /></section><section className="grid gap-5 xl:grid-cols-[1.15fr_.85fr]"><div className={`${card} p-5 sm:p-6`}><div className="flex items-center justify-between"><div><p className={label}>Production intelligence</p><h2 className="mt-1 text-2xl font-semibold">Farm operating signals</h2></div><button onClick={() => setView("intelligence")} className="text-sm font-semibold text-[#283C09]">Open record →</button></div><div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">{[["3.2 ha","Mapped area"],["684","Coffee trees"],["82%","Canopy coverage"],["Good","Crop condition"]].map(([value, text]) => <div key={text} className="rounded-xl bg-[#f7f8f4] p-4"><b className="block text-xl text-[#283C09]">{value}</b><span className="mt-1 block text-xs text-gray-500">{text}</span></div>)}</div><div className="mt-5 h-32 overflow-hidden rounded-xl bg-[linear-gradient(135deg,#1e2d07,#567018)] p-5 text-white"><p className="text-xs uppercase tracking-[0.16em] text-white/55">Field attention</p><p className="mt-5 max-w-md text-sm">Inspect the lower eastern block for uneven greenness before the next input application.</p></div></div><div className={`${card} p-5 sm:p-6`}><p className={label}>Verification journey</p><div className="mt-3 flex items-end justify-between"><b className="text-3xl text-[#283C09]">{verificationProgress}%</b><span className="text-xs text-gray-500">Record prepared</span></div><div className="mt-3 h-2 overflow-hidden rounded-full bg-[#e6eadf]"><div className="h-full rounded-full bg-[#283C09]" style={{ width: `${verificationProgress}%` }} /></div><div className="mt-6 space-y-4 text-sm">{[["Identity record","Complete"],["Farm boundary","Available"],["Field visit","Schedule"],["Final review","Pending"]].map(([step,status]) => <div key={step} className="flex items-center justify-between border-b border-[#283C09]/10 pb-3 last:border-0"><span>{step}</span><b className="text-xs text-[#283C09]">{status}</b></div>)}</div></div></section></div>; }
+
+function FarmIntelligence() { const sections: Array<[string, string[][]]> = [["Farm identity & parcel", [["Farmer record", "PM-FR-00482", "Matched"], ["Mapped area", "3.2 hectares", "Available"], ["Boundary confidence", "Field confirmation required", "Review"]]], ["Crop & canopy", [["Coffee trees", "684 recorded", "Observed"], ["Canopy coverage", "82% of mapped block", "Signal"], ["Relative greenness", "Good · 1 area for inspection", "Signal"]]], ["Land & water", [["Elevation band", "1,720–1,764 m", "Mapped"], ["Slope exposure", "Moderate", "Mapped"], ["Water source", "Rain-fed + storage tank", "Declared"]]], ["Risks & actions", [["Priority action", "Inspect eastern block", "Open"], ["Pest observation", "No active alert", "Current"], ["Next field visit", "Scheduling required", "Action"]]]]; return <div className="mt-6 grid gap-5 xl:grid-cols-2">{sections.map(([heading, rows]) => <section key={heading} className={`${card} p-5 sm:p-6`}><p className={label}>Production intelligence</p><h2 className="mt-2 text-2xl font-semibold">{heading}</h2><div className="mt-4">{rows.map(([rowTitle,value,status]) => <RecordRow key={rowTitle} title={rowTitle} value={value} status={status} />)}</div></section>)}</div>; }
+
+function Production() { return <div className="mt-6 grid gap-5 xl:grid-cols-[1.1fr_.9fr]"><section className={`${card} p-5 sm:p-6`}><p className={label}>2026 main crop</p><h2 className="mt-2 text-2xl font-semibold">Production plan</h2><div className="mt-5 grid gap-3 sm:grid-cols-3">{[["3,200 kg","Forecast cherry"],["2,480 kg","Recorded to date"],["77.5%","Season progress"]].map(([value,text]) => <div key={text} className="rounded-xl bg-[#f7f8f4] p-4"><b className="text-2xl text-[#283C09]">{value}</b><span className="mt-1 block text-xs text-gray-500">{text}</span></div>)}</div><div className="mt-6">{[["Pruning","Complete · 12 Feb"],["Nutrition","2 of 3 applications"],["Harvesting","6 deliveries recorded"],["Processing","Wet-mill route confirmed"]].map(([rowTitle,value]) => <RecordRow key={rowTitle} title={rowTitle} value={value} />)}</div></section><section className={`${card} p-5 sm:p-6`}><p className={label}>Operating inputs</p><h2 className="mt-2 text-2xl font-semibold">Inputs & labour</h2><div className="mt-4"><RecordRow title="Fertiliser" value="KES 42,000" /><RecordRow title="Crop protection" value="KES 13,400" /><RecordRow title="Seasonal labour" value="KES 68,500" /><RecordRow title="Processing & transport" value="KES 21,300" /></div></section></div>; }
+
+function CoffeeRecords() { return <div className="mt-6 space-y-5"><section className="grid gap-4 sm:grid-cols-3"><Metric label="Coffee delivered" value="2,480 kg" note="6 delivery records" /><Metric label="Saleable inventory" value="412 kg" note="Green coffee equivalent" /><Metric label="Weighted price" value="KES 184/kg" note="Cherry equivalent" /></section><section className={`${card} overflow-hidden`}><div className="p-5 sm:p-6"><p className={label}>Traceable lots</p><h2 className="mt-2 text-2xl font-semibold">Coffee movement</h2></div><div className="overflow-x-auto"><table className="w-full min-w-[680px] text-left text-sm"><thead className="bg-[#f7f8f4] text-xs uppercase tracking-wide text-gray-500"><tr>{["Record","Date","Product","Quantity","Quality","Status"].map((head) => <th key={head} className="px-5 py-3">{head}</th>)}</tr></thead><tbody>{[["DLV-0261","21 Sep","Cherry","620 kg","AA potential","Confirmed"],["DLV-0244","08 Sep","Cherry","540 kg","AB potential","Settled"],["LOT-0198","29 Aug","Parchment","186 kg","10.8% moisture","In stock"]].map((row) => <tr key={row[0]} className="border-t border-[#283C09]/10">{row.map((cell) => <td key={cell} className="px-5 py-4">{cell}</td>)}</tr>)}</tbody></table></div></section></div>; }
+
+function Finance({ profile }: { profile: LiveFarmerProfile }) { return <div className="mt-6 space-y-5"><section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><Metric label="Coffee sales" value={`KES ${profile.totalCoffeeSalesKes.toLocaleString()}`} note="Current recorded total" /><Metric label="Cash available" value={`KES ${profile.balanceKes.toLocaleString()}`} note="Connected wallet" /><Metric label="Receivables" value="KES 146,800" note="Confirmed buyer obligations" /><Metric label="Net farm position" value="KES 584,602" note="Cash + receivables + inventory − loans" /></section><section className="grid gap-5 xl:grid-cols-[1.1fr_.9fr]"><div className={`${card} p-5 sm:p-6`}><p className={label}>Money movement</p><h2 className="mt-2 text-2xl font-semibold">Recent financial activity</h2><div className="mt-4">{profile.activities.map((activity) => <RecordRow key={activity.id} title={activity.label} value={`${activity.currency ?? "KES"} ${(activity.amount ?? 0).toLocaleString()}`} status={activity.status} />)}</div></div><div className={`${card} p-5 sm:p-6`}><p className={label}>Position</p><h2 className="mt-2 text-2xl font-semibold">What the farm owns and owes</h2><div className="mt-4"><RecordRow title="Coffee inventory value" value="KES 457,240" /><RecordRow title="Farm assets" value="KES 312,000" /><RecordRow title="Cash & receivables" value="KES 209,362" /><RecordRow title="Outstanding debt" value="KES 82,000" /></div></div></section></div>; }
+
+function AssetsAndLoans() { return <div className="mt-6 grid gap-5 xl:grid-cols-2"><section className={`${card} p-5 sm:p-6`}><p className={label}>Productive assets</p><h2 className="mt-2 text-2xl font-semibold">Farm asset register</h2><div className="mt-4"><RecordRow title="Coffee trees" value="684 · KES 205,200" status="Observed" /><RecordRow title="Water storage tank" value="5,000 L · KES 48,000" status="Declared" /><RecordRow title="Pulper share" value="25% · KES 36,000" status="Recorded" /><RecordRow title="Drying tables" value="4 units · KES 22,800" status="Recorded" /></div></section><section className={`${card} p-5 sm:p-6`}><p className={label}>Credit obligations</p><h2 className="mt-2 text-2xl font-semibold">Loans & repayments</h2><div className="mt-4"><RecordRow title="Input facility 2026" value="KES 64,000 outstanding" status="Current" /><RecordRow title="Equipment advance" value="KES 18,000 outstanding" status="Current" /><RecordRow title="Next repayment" value="KES 12,400 · 30 Oct" status="Scheduled" /><RecordRow title="Total repaid this season" value="KES 41,600" status="Recorded" /></div></section></div>; }
+
+function Verification({ state, progress, onApply }: { state: VerificationState; progress: number; onApply: () => void }) { return <div className="mt-6 grid gap-5 xl:grid-cols-[1fr_.85fr]"><section className={`${card} p-5 sm:p-6`}><p className={label}>Verification pathway</p><h2 className="mt-2 text-2xl font-semibold">Build a reviewable farm record</h2><div className="mt-6 space-y-3">{[["01","Farmer identity","Complete"],["02","Farm boundary","Available"],["03","Verification application",state === "submitted" ? "Submitted" : "Not started"],["04","Field visit","Pending"],["05","Record decision","Pending"]].map(([number,rowTitle,status]) => <div key={number} className="grid grid-cols-[2.5rem_1fr_auto] items-center gap-3 rounded-xl border border-[#283C09]/10 p-3"><span className="grid h-9 w-9 place-items-center rounded-full bg-[#f7f8f4] text-xs font-semibold text-[#283C09]">{number}</span><b className="text-sm">{rowTitle}</b><span className="text-xs text-gray-500">{status}</span></div>)}</div></section><section className={`${card} p-5 sm:p-6`}><p className={label}>Current status</p><p className="mt-3 text-5xl font-semibold text-[#283C09]">{progress}%</p><div className="mt-3 h-2 rounded-full bg-[#e6eadf]"><div className="h-full rounded-full bg-[#283C09]" style={{ width: `${progress}%` }} /></div><p className="mt-5 text-sm leading-relaxed text-gray-600">Verification separates information supplied by the farmer, records matched to existing sources, evidence reviewed remotely, and observations confirmed in the field.</p>{state === "submitted" ? <div className="mt-5 rounded-xl bg-[#eef4df] p-4 text-sm text-[#283C09]"><b>Application received</b><p className="mt-1 text-xs">Reference PM-VR-260928. A coordinator will contact you to schedule the field visit.</p></div> : <button onClick={onApply} className="mt-5 w-full rounded-xl bg-[#522912] px-4 py-3 text-sm font-semibold text-white">Apply for verification</button>}</section></div>; }
+
+function VerificationModal({ onClose, onSubmit }: { onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) { return <div className="fixed inset-0 z-50 grid place-items-end bg-black/45 p-3 sm:place-items-center"><section className="max-h-[92vh] w-full max-w-xl overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl sm:p-7" role="dialog" aria-modal="true" aria-labelledby="verification-title"><div className="flex items-start justify-between gap-4"><div><p className={label}>Farm verification</p><h2 id="verification-title" className="mt-2 text-3xl font-semibold">Request a field review</h2></div><button onClick={onClose} className="rounded-full border border-[#283C09]/15 px-3 py-1.5 text-sm">Close</button></div><p className="mt-3 text-sm text-gray-600">Confirm the farm details and choose when the farm can be accessed. No record is marked verified until the review is complete.</p><form onSubmit={onSubmit} className="mt-6 space-y-4"><div className="grid gap-4 sm:grid-cols-2"><div><label className="mb-2 block text-sm font-semibold" htmlFor="visit-date">Preferred visit date</label><input id="visit-date" type="date" required className={input} /></div><div><label className="mb-2 block text-sm font-semibold" htmlFor="contact">Contact number</label><input id="contact" type="tel" defaultValue="+254 700 000 000" required className={input} /></div></div><div><label className="mb-2 block text-sm font-semibold" htmlFor="directions">Farm directions or landmark</label><textarea id="directions" required rows={3} className={input} /></div><label className="flex items-start gap-3 rounded-xl bg-[#f7f8f4] p-4 text-sm"><input type="checkbox" required className="mt-1" /><span>I confirm that the submitted farm information is accurate and authorize Project Mocha to review the farm record and conduct a field visit.</span></label><button className="w-full rounded-xl bg-[#283C09] px-4 py-3.5 text-sm font-semibold text-white">Submit verification application</button></form></section></div>; }
