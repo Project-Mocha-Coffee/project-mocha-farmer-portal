@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import ReferralCapture from "@/components/ReferralCapture";
 
 export const metadata: Metadata = {
   title: "Project Mocha Farmer Portal",
@@ -23,6 +24,7 @@ export default function RootLayout({
         />
       </head>
       <body className="min-h-full flex flex-col bg-[#fafafa] text-[var(--charcoal)]">
+        <ReferralCapture />
         {children}
       </body>
     </html>
